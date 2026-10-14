@@ -326,7 +326,12 @@ namespace QuantLib {
                 Handle<OptionletVolatilityStructure>(),
                 BlackIborCouponPricer::TimingAdjustment::Black76,
                 Handle<Quote>(ext::make_shared<SimpleQuote>(1.0)), useIndexedCoupons_);
-            setCouponPricer(leg, pricer);
+            // the leg only holds Ibor and fixed-rate coupons, so we can set the pricer
+            // directly instead of using setCouponPricer, whose visitor is much slower
+            for (const auto& c : leg) {
+                if (auto coupon = ext::dynamic_pointer_cast<IborCoupon>(c))
+                    coupon->setPricer(pricer);
+            }
         }
 
         return leg;
