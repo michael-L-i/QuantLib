@@ -37,6 +37,7 @@
 #include <ql/pricingengines/basket/singlefactorbsmbasketengine.hpp>
 #include <ql/pricingengines/basket/denglizhoubasketengine.hpp>
 #include <ql/pricingengines/basket/gaussiancopulaspreadengine.hpp>
+#include <ql/experimental/mcbasket/mceuropeangbmbasketengine.hpp>
 #include <ql/experimental/volatility/svismilesection.hpp>
 #include <ql/termstructures/volatility/equityfx/piecewiseblackvariancesurface.hpp>
 #include <ql/pricingengines/basket/stulzengine.hpp>
@@ -44,6 +45,7 @@
 #include <ql/processes/stochasticprocessarray.hpp>
 #include <ql/quotes/simplequote.hpp>
 #include <ql/termstructures/volatility/equityfx/blackconstantvol.hpp>
+#include <ql/termstructures/volatility/equityfx/blackvariancecurve.hpp>
 #include <ql/termstructures/volatility/equityfx/hestonblackvolsurface.hpp>
 #include <ql/termstructures/yield/flatforward.hpp>
 #include <ql/termstructures/yield/zerocurve.hpp>
@@ -2942,6 +2944,151 @@ BOOST_AUTO_TEST_CASE(testGaussianCopulaSpreadEngineParityAcrossVols) {
                        << "\n    tolerance     : " << parityRelTol);
         }
     }
+}
+
+BOOST_AUTO_TEST_CASE(testMCEuropeanGBMBasketEngine) {
+    BOOST_TEST_MESSAGE("Testing the MC European GBM basket engine "
+                       "against MCEuropeanBasketEngine...");
+
+    const DayCounter dc = Actual365Fixed();
+    const Date today = Date(1, March, 2025);
+    Settings::instance().evaluationDate() = today;
+
+    // The drift over each step comes from the forward rates of the curves,
+    // which need not be flat.
+    const Handle<YieldTermStructure> rTS(ext::make_shared<ZeroCurve>(
+        std::vector<Date>{today, today + Period(1, Years), today + Period(2, Years)},
+        std::vector<Rate>{0.02, 0.035, 0.03}, dc));
+    const Real s0[] = {100.0, 90.0, 110.0, 80.0};
+    const Rate q[] = {0.01, 0.02, 0.0, 0.03};
+    const Volatility vol[] = {0.2, 0.3, 0.25, 0.4};
+    std::vector<ext::shared_ptr<SimpleQuote>> spots;
+    std::vector<ext::shared_ptr<GeneralizedBlackScholesProcess>> processes;
+    for (Size i = 0; i < 4; ++i) {
+        spots.push_back(ext::make_shared<SimpleQuote>(s0[i]));
+        processes.push_back(ext::make_shared<BlackScholesMertonProcess>(
+            Handle<Quote>(spots[i]), Handle<YieldTermStructure>(flatRate(today, q[i], dc)), rTS,
+            Handle<BlackVolTermStructure>(flatVol(today, vol[i], dc))));
+    }
+    // not positive semidefinite, so that both engines must salvage it the same way
+    const Matrix rho = {
+        { 1.0, 0.9, -0.9, 0.3 },
+        { 0.9, 1.0,  0.9, 0.0 },
+        {-0.9, 0.9,  1.0, 0.2 },
+        { 0.3, 0.0,  0.2, 1.0 },
+    };
+    const auto processArray = ext::make_shared<StochasticProcessArray>(
+        std::vector<ext::shared_ptr<StochasticProcess1D>>(processes.begin(), processes.end()), rho);
+
+    const auto exercise = ext::make_shared<EuropeanExercise>(today + Period(18, Months));
+    BasketOption averageCall(
+        ext::make_shared<AverageBasketPayoff>(
+            ext::make_shared<PlainVanillaPayoff>(Option::Call, 95.0), Array({0.4, 0.3, 0.2, 0.1})),
+        exercise);
+    BasketOption maxPut(
+        ext::make_shared<MaxBasketPayoff>(ext::make_shared<PlainVanillaPayoff>(Option::Put, 120.0)),
+        exercise);
+
+    // an odd number of samples leaves the last batch of paths incomplete
+    const Size samples = 4095;
+    const BigNatural seed = 42;
+    // The engines draw the same variates and compute the same terminal values,
+    // up to rounding for more than one step, where the GBM engine takes the
+    // exponential of a sum instead of a product of exponentials.
+    const Real tolerance = 1e-12;
+
+    for (Size steps : {1, 12}) {
+        for (bool antithetic : {false, true}) {
+            const ext::shared_ptr<PricingEngine> reference =
+                MakeMCEuropeanBasketEngine<PseudoRandom>(processArray)
+                    .withSteps(steps)
+                    .withSamples(samples)
+                    .withAntitheticVariate(antithetic)
+                    .withSeed(seed);
+            const auto engine = ext::make_shared<MCEuropeanGBMBasketEngine>(
+                processes, rho, steps, samples, antithetic, seed);
+
+            for (BasketOption* option : {&averageCall, &maxPut}) {
+                option->setPricingEngine(reference);
+                const Real expected = option->NPV();
+                const Real expectedError = option->errorEstimate();
+                option->setPricingEngine(engine);
+                const Real calculated = option->NPV();
+                const Real error = option->errorEstimate();
+
+                if (relativeError(calculated, expected, expected) > tolerance ||
+                    relativeError(error, expectedError, expectedError) > tolerance)
+                    BOOST_ERROR("failed to reproduce MCEuropeanBasketEngine"
+                                << std::setprecision(17) << "\n    steps:          " << steps
+                                << "\n    antithetic:     " << antithetic
+                                << "\n    expected value: " << expected
+                                << "\n    calculated:     " << calculated
+                                << "\n    expected error: " << expectedError
+                                << "\n    calculated:     " << error);
+            }
+        }
+    }
+
+    // the engine must be notified when its processes change
+    const auto engine =
+        ext::make_shared<MCEuropeanGBMBasketEngine>(processes, rho, 1, samples, false, seed);
+    averageCall.setPricingEngine(engine);
+    const Real before = averageCall.NPV();
+    spots[0]->setValue(105.0);
+    const Real after = averageCall.NPV();
+    averageCall.setPricingEngine(MakeMCEuropeanBasketEngine<PseudoRandom>(processArray)
+                                     .withSteps(1)
+                                     .withSamples(samples)
+                                     .withSeed(seed));
+    const Real expected = averageCall.NPV();
+    if (after <= before || relativeError(after, expected, expected) > tolerance)
+        BOOST_ERROR("failed to update the GBM basket engine after a change in spot"
+                    << std::setprecision(17) << "\n    before:   " << before
+                    << "\n    after:    " << after << "\n    expected: " << expected);
+}
+
+BOOST_AUTO_TEST_CASE(testMCEuropeanGBMBasketEngineUnsupportedInputs) {
+    BOOST_TEST_MESSAGE("Testing that the MC European GBM basket engine "
+                       "rejects unsupported inputs...");
+
+    const DayCounter dc = Actual365Fixed();
+    const Date today = Date(1, March, 2025);
+    Settings::instance().evaluationDate() = today;
+    const Date maturity = today + Period(1, Years);
+
+    const auto process = [&](const ext::shared_ptr<BlackVolTermStructure>& vol) {
+        return ext::make_shared<BlackScholesMertonProcess>(
+            Handle<Quote>(ext::make_shared<SimpleQuote>(100.0)),
+            Handle<YieldTermStructure>(flatRate(today, 0.01, dc)),
+            Handle<YieldTermStructure>(flatRate(today, 0.03, dc)),
+            Handle<BlackVolTermStructure>(vol));
+    };
+    const std::vector<ext::shared_ptr<GeneralizedBlackScholesProcess>> processes = {
+        process(flatVol(today, 0.2, dc)), process(flatVol(today, 0.3, dc))};
+    const Matrix rho = {{1.0, 0.5}, {0.5, 1.0}};
+
+    BOOST_CHECK_THROW(MCEuropeanGBMBasketEngine(processes, Matrix(3, 3, 0.5), 1, 1000), Error);
+    BOOST_CHECK_THROW(MCEuropeanGBMBasketEngine(processes, rho, 0, 1000), Error);
+    BOOST_CHECK_THROW(MCEuropeanGBMBasketEngine(processes, rho, 1, 1), Error);
+
+    const auto payoff = ext::make_shared<MaxBasketPayoff>(
+        ext::make_shared<PlainVanillaPayoff>(Option::Call, 100.0));
+
+    BasketOption american(payoff, ext::make_shared<AmericanExercise>(today, maturity));
+    american.setPricingEngine(
+        ext::make_shared<MCEuropeanGBMBasketEngine>(processes, rho, 1, 1000, false, 42));
+    BOOST_CHECK_THROW(american.NPV(), Error);
+
+    // a time-dependent volatility is not supported
+    const auto volCurve = ext::make_shared<BlackVarianceCurve>(
+        today, std::vector<Date>{today + Period(6, Months), maturity},
+        std::vector<Volatility>{0.2, 0.3}, dc);
+    BasketOption european(payoff, ext::make_shared<EuropeanExercise>(maturity));
+    european.setPricingEngine(ext::make_shared<MCEuropeanGBMBasketEngine>(
+        std::vector<ext::shared_ptr<GeneralizedBlackScholesProcess>>{processes[0],
+                                                                     process(volCurve)},
+        rho, 1, 1000, false, 42));
+    BOOST_CHECK_THROW(european.NPV(), Error);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
