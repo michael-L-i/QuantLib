@@ -3477,6 +3477,9 @@
     <ClInclude Include="ql\experimental\mcbasket\mcamericanpathengine.hpp">
       <Filter>experimental\mcbasket</Filter>
     </ClInclude>
+    <ClInclude Include="ql\experimental\mcbasket\mceuropeangbmbasketengine.hpp">
+      <Filter>experimental\mcbasket</Filter>
+    </ClInclude>
     <ClInclude Include="ql\experimental\mcbasket\mclongstaffschwartzpathengine.hpp">
       <Filter>experimental\mcbasket</Filter>
     </ClInclude>
@@ -6687,6 +6690,9 @@
       <Filter>experimental\mcbasket</Filter>
     </ClCompile>
     <ClCompile Include="ql\experimental\mcbasket\longstaffschwartzmultipathpricer.cpp">
+      <Filter>experimental\mcbasket</Filter>
+    </ClCompile>
+    <ClCompile Include="ql\experimental\mcbasket\mceuropeangbmbasketengine.cpp">
       <Filter>experimental\mcbasket</Filter>
     </ClCompile>
     <ClCompile Include="ql\experimental\mcbasket\mcpathbasketengine.cpp">

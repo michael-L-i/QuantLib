@@ -745,6 +745,7 @@
     <ClInclude Include="ql\experimental\mcbasket\all.hpp" />
     <ClInclude Include="ql\experimental\mcbasket\longstaffschwartzmultipathpricer.hpp" />
     <ClInclude Include="ql\experimental\mcbasket\mcamericanpathengine.hpp" />
+    <ClInclude Include="ql\experimental\mcbasket\mceuropeangbmbasketengine.hpp" />
     <ClInclude Include="ql\experimental\mcbasket\mclongstaffschwartzpathengine.hpp" />
     <ClInclude Include="ql\experimental\mcbasket\mcpathbasketengine.hpp" />
     <ClInclude Include="ql\experimental\mcbasket\pathmultiassetoption.hpp" />
@@ -2126,6 +2127,7 @@
     <ClCompile Include="ql\experimental\math\zigguratrng.cpp" />
     <ClCompile Include="ql\experimental\mcbasket\adaptedpathpayoff.cpp" />
     <ClCompile Include="ql\experimental\mcbasket\longstaffschwartzmultipathpricer.cpp" />
+    <ClCompile Include="ql\experimental\mcbasket\mceuropeangbmbasketengine.cpp" />
     <ClCompile Include="ql\experimental\mcbasket\mcpathbasketengine.cpp" />
     <ClCompile Include="ql\experimental\mcbasket\pathmultiassetoption.cpp" />
     <ClCompile Include="ql\experimental\models\normalclvmodel.cpp" />

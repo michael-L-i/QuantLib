@@ -70,6 +70,9 @@ namespace QuantLib {
             y ^= (y >> 18);
             return y;
         }
+        /*! advances the generator as if nextInt32() had been called
+            n times, but faster, since only the state is updated */
+        void discard(Size n);
       private:
         void seedInitialization(unsigned long seed);
         void twist() const;

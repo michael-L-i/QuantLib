@@ -8,6 +8,7 @@ this_include_HEADERS = \
     adaptedpathpayoff.hpp \
     longstaffschwartzmultipathpricer.hpp \
     mcamericanpathengine.hpp \
+    mceuropeangbmbasketengine.hpp \
     mclongstaffschwartzpathengine.hpp \
     mcpathbasketengine.hpp \
     pathmultiassetoption.hpp \
@@ -16,6 +17,7 @@ this_include_HEADERS = \
 cpp_files = \
     adaptedpathpayoff.cpp \
     longstaffschwartzmultipathpricer.cpp \
+    mceuropeangbmbasketengine.cpp \
     mcpathbasketengine.cpp \
     pathmultiassetoption.cpp
 

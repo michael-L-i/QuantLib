@@ -68,6 +68,7 @@
 
 #include <ql/math/randomnumbers/seedgenerator.hpp>
 #include <ql/math/randomnumbers/mt19937uniformrng.hpp>
+#include <algorithm>
 
 namespace QuantLib {
 
@@ -140,6 +141,16 @@ namespace QuantLib {
         mt[N-1] = mt[M-1] ^ (y >> 1) ^ mag01[y & 0x1UL];
 
         mti = 0;
+    }
+
+    void MersenneTwisterUniformRng::discard(Size n) {
+        while (n > 0) {
+            if (mti == N)
+                twist();
+            const Size skipped = std::min(n, N - mti);
+            mti += skipped;
+            n -= skipped;
+        }
     }
 
 }

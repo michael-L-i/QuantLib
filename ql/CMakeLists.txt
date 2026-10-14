@@ -169,6 +169,7 @@ set(QL_SOURCES
     experimental/math/zigguratrng.cpp
     experimental/mcbasket/adaptedpathpayoff.cpp
     experimental/mcbasket/longstaffschwartzmultipathpricer.cpp
+    experimental/mcbasket/mceuropeangbmbasketengine.cpp
     experimental/mcbasket/mcpathbasketengine.cpp
     experimental/mcbasket/pathmultiassetoption.cpp
     experimental/models/normalclvmodel.cpp
@@ -1219,6 +1220,7 @@ set(QL_HEADERS
     experimental/mcbasket/adaptedpathpayoff.hpp
     experimental/mcbasket/longstaffschwartzmultipathpricer.hpp
     experimental/mcbasket/mcamericanpathengine.hpp
+    experimental/mcbasket/mceuropeangbmbasketengine.hpp
     experimental/mcbasket/mclongstaffschwartzpathengine.hpp
     experimental/mcbasket/mcpathbasketengine.hpp
     experimental/mcbasket/pathmultiassetoption.hpp
