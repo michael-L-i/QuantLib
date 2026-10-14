@@ -20,6 +20,7 @@
 
 #include <ql/processes/stochasticprocessarray.hpp>
 #include <ql/math/matrixutilities/pseudosqrt.hpp>
+#include <numeric>
 
 namespace QuantLib {
 
@@ -101,11 +102,17 @@ namespace QuantLib {
 
     Array StochasticProcessArray::evolve(
                   Time t0, const Array& x0, Time dt, const Array& dw) const {
-        const Array dz = sqrtCorrelation_ * dw;
+        QL_REQUIRE(dw.size() == sqrtCorrelation_.columns(),
+                   "wrong number of variates (" << dw.size() << ", "
+                   << sqrtCorrelation_.columns() << " required)");
 
         Array tmp(size());
-        for (Size i=0; i<size(); ++i)
-            tmp[i] = processes_[i]->evolve(t0, x0[i], dt, dz[i]);
+        for (Size i=0; i<size(); ++i) {
+            // the i-th element of sqrtCorrelation_ * dw, without allocating the product
+            Real dz = std::inner_product(dw.begin(), dw.end(),
+                                         sqrtCorrelation_.row_begin(i), Real(0.0));
+            tmp[i] = processes_[i]->evolve(t0, x0[i], dt, dz);
+        }
         return tmp;
     }
 
