@@ -105,6 +105,8 @@ namespace QuantLib {
         mutable bool updated_ = true;
         Calendar calendar_;
       private:
+        void checkRangeSlow(Time t,
+                            bool extrapolate) const;
         mutable Date referenceDate_;
         Natural settlementDays_;
         DayCounter dayCounter_;
@@ -128,6 +130,14 @@ namespace QuantLib {
         QL_REQUIRE(settlementDays_!=Null<Natural>(),
                    "settlement days not provided for this instance");
         return settlementDays_;
+    }
+
+    inline void TermStructure::checkRange(Time t,
+                                          bool extrapolate) const {
+        // the common cases are checked inline; the full check, with its
+        // error messages, is out of line
+        if (!(t >= 0.0 && (extrapolate || allowsExtrapolation() || t <= maxTime())))
+            checkRangeSlow(t, extrapolate);
     }
 
     inline Time TermStructure::timeFromReference(const Date& d) const {
