@@ -3042,6 +3042,26 @@ BOOST_AUTO_TEST_CASE(testHestonEngineIntegration) {
     }
 }
 
+BOOST_AUTO_TEST_CASE(testCachedGaussLaguerreIntegration) {
+    BOOST_TEST_MESSAGE("Testing that cached Gauss-Laguerre rules match freshly built ones...");
+
+    const std::function<Real(Real)> f = [](Real x) { return 1.0 / (1.0 + x * x); };
+
+    // interleaved and repeated orders, so that later requests hit the cache
+    for (Size order : {144, 64, 96, 64, 144}) {
+        const Real calculated =
+            AnalyticHestonEngine::Integration::gaussLaguerre(order).calculate(1.0, f);
+        const Real expected = GaussLaguerreIntegration(order)(f);
+
+        if (calculated != expected) {
+            BOOST_ERROR("failed to reproduce Gauss-Laguerre integration"
+                        << "\n  order     : " << order
+                        << "\n  calculated: " << calculated
+                        << "\n  expected  : " << expected);
+        }
+    }
+}
+
 BOOST_AUTO_TEST_CASE(testOptimalControlVariateChoice) {
     BOOST_TEST_MESSAGE(
         "Testing optimal control variate choice for the Heston model...");

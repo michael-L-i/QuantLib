@@ -30,6 +30,8 @@
 #include <ql/utilities/null.hpp>
 #include <cmath>
 #include <limits>
+#include <map>
+#include <mutex>
 #include <utility>
 
 namespace QuantLib {
@@ -150,8 +152,18 @@ namespace QuantLib {
 
     FourierIntegration FourierIntegration::gaussLaguerre(Size intOrder) {
         QL_REQUIRE(intOrder <= 192, "maximum integraton order (192) exceeded");
-        return FourierIntegration(GaussLaguerre,
-                           ext::make_shared<GaussLaguerreIntegration>(intOrder));
+
+        // The rule depends only on the order and is never modified, but building
+        // it costs more than a typical valuation using it; so it is built once
+        // per order and shared.  The check above bounds the size of the cache.
+        static std::mutex mutex;
+        static std::map<Size, ext::shared_ptr<GaussianQuadrature>> quadratures;
+
+        std::lock_guard<std::mutex> lock(mutex);
+        auto& quadrature = quadratures[intOrder];
+        if (quadrature == nullptr)
+            quadrature = ext::make_shared<GaussLaguerreIntegration>(intOrder);
+        return FourierIntegration(GaussLaguerre, quadrature);
     }
 
     FourierIntegration FourierIntegration::gaussLegendre(Size intOrder) {
