@@ -621,6 +621,35 @@ BOOST_AUTO_TEST_CASE(testIborCouponKnowsWhenitHasFixed) {
     }
 }
 
+BOOST_AUTO_TEST_CASE(testIborCouponPricerDiscount) {
+    BOOST_TEST_MESSAGE("Testing discounting in ibor coupon pricer...");
+
+    Date today = Settings::instance().evaluationDate();
+
+    RelinkableHandle<YieldTermStructure> curve(flatRate(today, 0.03, Actual360()));
+    auto index = ext::make_shared<Euribor6M>(curve);
+    IborCoupon coupon =
+        iborCouponForFixingDate(index, index->fixingCalendar().advance(today, -1, Months));
+    Rate pastFixing = 0.02;
+    index->addFixing(coupon.fixingDate(), pastFixing);
+
+    auto pricer = ext::make_shared<BlackIborCouponPricer>();
+    pricer->initialize(coupon);
+    Real calculated = pricer->swapletPrice();
+    Real expected = pastFixing * coupon.accrualPeriod() * curve->discount(coupon.date());
+    if (std::fabs(calculated - expected) > 1e-12) {
+        BOOST_ERROR("swaplet price mismatch:"
+                    << "\n    calculated: " << calculated
+                    << "\n    expected: " << expected);
+    }
+
+    // the rate of a fixed coupon doesn't need the curve, but its price does
+    curve.linkTo(ext::shared_ptr<YieldTermStructure>());
+    pricer->initialize(coupon);
+    BOOST_CHECK_NO_THROW(pricer->swapletRate());
+    BOOST_CHECK_THROW(pricer->swapletPrice(), Error);
+}
+
 BOOST_AUTO_TEST_CASE(testInterpolatedIborStubCoupon) {
     BOOST_TEST_MESSAGE("Testing interpolation of an irregular Ibor coupon...");
 

@@ -58,6 +58,8 @@ namespace QuantLib {
     }
 
     void IborCoupon::initializeCachedData() const {
+        if (cachedDataIsInitialized_)
+            return;
         auto p = ext::dynamic_pointer_cast<IborCouponPricer>(pricer_);
         QL_REQUIRE(p, "IborCoupon: pricer not set or not derived from IborCouponPricer");
         p->initializeCachedData(*this);
@@ -324,7 +326,12 @@ namespace QuantLib {
                 Handle<OptionletVolatilityStructure>(),
                 BlackIborCouponPricer::TimingAdjustment::Black76,
                 Handle<Quote>(ext::make_shared<SimpleQuote>(1.0)), useIndexedCoupons_);
-            setCouponPricer(leg, pricer);
+            // the leg only holds Ibor and fixed-rate coupons, so we can set the pricer
+            // directly instead of using setCouponPricer, whose visitor is much slower
+            for (const auto& c : leg) {
+                if (auto coupon = ext::dynamic_pointer_cast<IborCoupon>(c))
+                    coupon->setPricer(pricer);
+            }
         }
 
         return leg;
