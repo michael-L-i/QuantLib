@@ -21,8 +21,50 @@
 #include <ql/processes/stochasticprocessarray.hpp>
 #include <ql/math/matrixutilities/pseudosqrt.hpp>
 #include <numeric>
+#include <typeinfo>
+#include <utility>
 
 namespace QuantLib {
+
+    namespace {
+
+        // evolves each x0[i] by evolve(i, x0[i], dz[i]) with dz = sqrtCorrelation * dw
+        template <class F>
+        Array evolveCorrelated(const Matrix& sqrtCorrelation,
+                               const Array& x0,
+                               const Array& dw,
+                               const F& evolve) {
+            QL_REQUIRE(dw.size() == sqrtCorrelation.columns(),
+                       "wrong number of variates (" << dw.size() << ", "
+                                                    << sqrtCorrelation.columns() << " required)");
+
+            Array tmp(sqrtCorrelation.rows());
+            for (Size i = 0; i < tmp.size(); ++i) {
+                // the i-th element of sqrtCorrelation * dw, without allocating the product
+                Real dz = std::inner_product(dw.begin(), dw.end(), sqrtCorrelation.row_begin(i),
+                                             Real(0.0));
+                tmp[i] = evolve(i, x0[i], dz);
+            }
+            return tmp;
+        }
+
+        class CorrelatedStep : public StochasticProcess::Step {
+          public:
+            CorrelatedStep(std::vector<ext::shared_ptr<StochasticProcess::Step>> steps,
+                           const Matrix& sqrtCorrelation)
+            : steps_(std::move(steps)), sqrtCorrelation_(sqrtCorrelation) {}
+            Array evolve(const Array& x0, const Array& dw) const override {
+                return evolveCorrelated(sqrtCorrelation_, x0, dw, [&](Size i, Real x, Real dz) {
+                    return steps_[i]->evolve(x, dz);
+                });
+            }
+
+          private:
+            std::vector<ext::shared_ptr<StochasticProcess::Step>> steps_;
+            const Matrix& sqrtCorrelation_;
+        };
+
+    }
 
     StochasticProcessArray::StochasticProcessArray(
         const std::vector<ext::shared_ptr<StochasticProcess1D> >& processes,
@@ -102,18 +144,21 @@ namespace QuantLib {
 
     Array StochasticProcessArray::evolve(
                   Time t0, const Array& x0, Time dt, const Array& dw) const {
-        QL_REQUIRE(dw.size() == sqrtCorrelation_.columns(),
-                   "wrong number of variates (" << dw.size() << ", "
-                   << sqrtCorrelation_.columns() << " required)");
+        return evolveCorrelated(sqrtCorrelation_, x0, dw, [&](Size i, Real x, Real dz) {
+            return processes_[i]->evolve(t0, x, dt, dz);
+        });
+    }
 
-        Array tmp(size());
-        for (Size i=0; i<size(); ++i) {
-            // the i-th element of sqrtCorrelation_ * dw, without allocating the product
-            Real dz = std::inner_product(dw.begin(), dw.end(),
-                                         sqrtCorrelation_.row_begin(i), Real(0.0));
-            tmp[i] = processes_[i]->evolve(t0, x0[i], dt, dz);
-        }
-        return tmp;
+    ext::shared_ptr<StochasticProcess::Step> StochasticProcessArray::step(Time t0, Time dt) const {
+        // a derived class might override evolve()
+        if (typeid(*this) != typeid(StochasticProcessArray))
+            return StochasticProcess::step(t0, dt);
+
+        std::vector<ext::shared_ptr<Step>> steps;
+        steps.reserve(size());
+        for (const auto& process : processes_)
+            steps.push_back(process->step(t0, dt));
+        return ext::make_shared<CorrelatedStep>(std::move(steps), sqrtCorrelation_);
     }
 
     Array StochasticProcessArray::apply(const Array& x0,

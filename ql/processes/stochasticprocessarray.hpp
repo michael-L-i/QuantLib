@@ -49,6 +49,8 @@ namespace QuantLib {
 
         Array apply(const Array& x0, const Array& dx) const override;
         Array evolve(Time t0, const Array& x0, Time dt, const Array& dw) const override;
+        //! returns a step made of the steps of the processes
+        ext::shared_ptr<Step> step(Time t0, Time dt) const override;
 
         Time time(const Date&) const override;
         // inspectors

@@ -83,6 +83,10 @@ namespace QuantLib {
         Real stdDeviation(Time t0, Real x0, Time dt) const override;
         Real variance(Time t0, Real x0, Time dt) const override;
         Real evolve(Time t0, Real x0, Time dt, Real dw) const override;
+        /*! when evolve() uses exact values for the curves, the returned
+            step has their drift and variance precomputed.
+        */
+        ext::shared_ptr<StochasticProcess::Step> step(Time t0, Time dt) const override;
         //@}
         Time time(const Date&) const override;
         //! \name Observer interface

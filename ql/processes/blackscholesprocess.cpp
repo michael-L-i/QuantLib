@@ -27,10 +27,27 @@
 #include <ql/termstructures/yield/flatforward.hpp>
 #include <ql/time/calendars/nullcalendar.hpp>
 #include <ql/time/daycounters/actual365fixed.hpp>
+#include <typeinfo>
 #include <utility>
 
 
 namespace QuantLib {
+
+    namespace {
+
+        // evolve() with the drift and standard deviation of log(x) precomputed
+        class ExactStep : public StochasticProcess1D::Step {
+          public:
+            ExactStep(Real drift, Real stdDev) : drift_(drift), stdDev_(stdDev) {}
+            Real evolve(Real x0, Real dw) const override {
+                return x0 * std::exp(stdDev_ * dw + drift_);
+            }
+
+          private:
+            Real drift_, stdDev_;
+        };
+
+    }
 
     GeneralizedBlackScholesProcess::GeneralizedBlackScholesProcess(
         Handle<Quote> x0,
@@ -144,6 +161,29 @@ namespace QuantLib {
         } else
             return apply(x0, discretization_->drift(*this, t0, x0, dt) +
                                  stdDeviation(t0, x0, dt) * dw);
+    }
+
+    ext::shared_ptr<StochasticProcess::Step>
+    GeneralizedBlackScholesProcess::step(Time t0, Time dt) const {
+        localVolatility(); // trigger update
+        // Derived classes might override evolve() or the methods it calls,
+        // so only the classes known not to do so take the shortcut.
+        const std::type_info& type = typeid(*this);
+        bool knownType = type == typeid(GeneralizedBlackScholesProcess) ||
+                         type == typeid(BlackScholesProcess) ||
+                         type == typeid(BlackScholesMertonProcess) ||
+                         type == typeid(BlackProcess) || type == typeid(GarmanKohlagenProcess);
+        if (!knownType || !isStrikeIndependent_ || forceDiscretization_)
+            return StochasticProcess1D::step(t0, dt);
+
+        // same as the exact branch of evolve(), which doesn't depend on x0 until apply()
+        Real var = variance(t0, x0(), dt);
+        Real drift =
+            (riskFreeRate_->forwardRate(t0, t0 + dt, Continuous, NoFrequency, true).rate() -
+             dividendYield_->forwardRate(t0, t0 + dt, Continuous, NoFrequency, true).rate()) *
+                dt -
+            0.5 * var;
+        return ext::make_shared<ExactStep>(drift, std::sqrt(var));
     }
 
     Time GeneralizedBlackScholesProcess::time(const Date& d) const {
