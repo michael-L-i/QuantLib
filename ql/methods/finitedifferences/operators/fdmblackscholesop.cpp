@@ -81,19 +81,11 @@ namespace QuantLib {
             const Real v
                 = volTS_->blackForwardVariance(t1, t2, strike_)/(t2-t1);
 
-            if (quantoHelper_ != nullptr) {
-                mapT_.axpyb(
-                    Array(1, r - q - 0.5*v)
-                        - quantoHelper_->quantoAdjustment(
-                            Array(1, std::sqrt(v)), t1, t2),
-                    dxMap_,
-                    dxxMap_.mult(0.5*Array(mesher_->layout()->size(), v)),
-                    Array(1, -r));
-            } else {
-                mapT_.axpyb(Array(1, r - q - 0.5*v), dxMap_,
-                    dxxMap_.mult(0.5*Array(mesher_->layout()->size(), v)),
-                    Array(1, -r));
-            }
+            Real drift = r - q - 0.5*v;
+            if (quantoHelper_ != nullptr)
+                drift -= quantoHelper_->quantoAdjustment(std::sqrt(v), t1, t2);
+
+            mapT_.axpyb(drift, dxMap_, 0.5*v, dxxMap_, -r);
         }
     }
 

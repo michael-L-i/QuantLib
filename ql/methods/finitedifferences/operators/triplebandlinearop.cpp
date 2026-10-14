@@ -160,6 +160,18 @@ namespace QuantLib {
         }
     }
 
+    void TripleBandLinearOp::axpyb(Real a, const TripleBandLinearOp& x,
+                                   Real c, const TripleBandLinearOp& y, Real b) {
+        const auto size = mesher_->layout()->size();
+        for (auto i=0U; i < size; ++i) {
+            // round c*y on its own, as y.mult(c) does
+            const Real yl = y.lower_[i]*c, yd = y.diag_[i]*c, yu = y.upper_[i]*c;
+            diag_[i]  = yd + a*x.diag_[i] + b;
+            lower_[i] = yl + a*x.lower_[i];
+            upper_[i] = yu + a*x.upper_[i];
+        }
+    }
+
     TripleBandLinearOp TripleBandLinearOp::add(const TripleBandLinearOp& m) const {
 
         TripleBandLinearOp retVal(direction_, mesher_);
@@ -233,9 +245,10 @@ namespace QuantLib {
         const auto* i0ptr = i0_.get();
         const auto* i2ptr = i2_.get();
 
-        array_type retVal(r.size());
+        const auto size = r.size();
+        array_type retVal(size);
         //#pragma omp parallel for
-        for (auto i=0U; i < mesher_->layout()->size(); ++i) {
+        for (auto i=0U; i < size; ++i) {
             retVal[i] = r[i0ptr[i]]*lptr[i]+r[i]*dptr[i]+r[i2ptr[i]]*uptr[i];
         }
 
