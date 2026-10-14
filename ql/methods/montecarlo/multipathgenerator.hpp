@@ -63,6 +63,7 @@ namespace QuantLib {
         ext::shared_ptr<StochasticProcess> process_;
         GSG generator_;
         mutable sample_type next_;
+        mutable Array temp_;
     };
 
 
@@ -74,7 +75,7 @@ namespace QuantLib {
                                                 GSG generator,
                                                 bool brownianBridge)
     : brownianBridge_(brownianBridge), process_(process), generator_(std::move(generator)),
-      next_(MultiPath(process->size(), times), 1.0) {
+      next_(MultiPath(process->size(), times), 1.0), temp_(process->factors()) {
 
         QL_REQUIRE(generator_.dimension() ==
                    process->factors()*(times.size()-1),
@@ -122,7 +123,6 @@ namespace QuantLib {
             for (auto j=0U; j<m; j++)
                 path[j].front() = asset[j];
 
-            Array temp(n);
             next_.weight = sequence_.weight;
 
             const auto& timeGrid = path[0].timeGrid();
@@ -134,14 +134,14 @@ namespace QuantLib {
                 if (antithetic)
                     std::transform(sequence_.value.begin()+offset,
                                    sequence_.value.begin()+offset+n,
-                                   temp.begin(),
+                                   temp_.begin(),
                                    std::negate<>());
                 else
                     std::copy(sequence_.value.begin()+offset,
                               sequence_.value.begin()+offset+n,
-                              temp.begin());
+                              temp_.begin());
 
-                asset = process_->evolve(t, asset, dt, temp);
+                asset = process_->evolve(t, asset, dt, temp_);
                 for (auto j=0U; j<m; j++)
                     path[j][i] = asset[j];
             }

@@ -284,6 +284,21 @@ BOOST_AUTO_TEST_CASE(testMultiPathGenerator) {
     testMultiple(process, "square-root", result4, result4a);
 }
 
+BOOST_AUTO_TEST_CASE(testProcessArrayWithWrongDimension) {
+
+    BOOST_TEST_MESSAGE("Testing that a process array rejects variates of the wrong size...");
+
+    std::vector<ext::shared_ptr<StochasticProcess1D> > processes(
+        2, ext::make_shared<GeometricBrownianMotionProcess>(100.0, 0.03, 0.20));
+    Matrix correlation(2, 2, 0.5);
+    correlation[0][0] = correlation[1][1] = 1.0;
+    StochasticProcessArray process(processes, correlation);
+
+    Array x0 = process.initialValues();
+    BOOST_CHECK_THROW(process.evolve(0.0, x0, 0.1, Array(1, 0.1)), Error);
+    BOOST_CHECK_THROW(process.evolve(0.0, x0, 0.1, Array(3, 0.1)), Error);
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 
 BOOST_AUTO_TEST_SUITE_END()
