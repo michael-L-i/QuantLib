@@ -39,6 +39,12 @@ namespace QuantLib {
 
         \ingroup mcarlo
 
+        \note The evolution over each time step is taken from the
+              process on construction (see StochasticProcess::step()),
+              so a generator might not follow later changes to the
+              process; Monte Carlo engines build a new one for each
+              calculation.
+
         \test the generated paths are checked against cached results
     */
     template <class GSG>
@@ -69,6 +75,7 @@ namespace QuantLib {
         Size dimension_;
         TimeGrid timeGrid_;
         ext::shared_ptr<StochasticProcess1D> process_;
+        std::vector<ext::shared_ptr<StochasticProcess::Step>> steps_;
         mutable sample_type next_;
         mutable std::vector<Real> temp_;
         BrownianBridge bb_;
@@ -83,14 +90,7 @@ namespace QuantLib {
                                       Size timeSteps,
                                       GSG generator,
                                       bool brownianBridge)
-    : brownianBridge_(brownianBridge), generator_(std::move(generator)),
-      dimension_(generator_.dimension()), timeGrid_(length, timeSteps),
-      process_(ext::dynamic_pointer_cast<StochasticProcess1D>(process)),
-      next_(Path(timeGrid_), 1.0), temp_(dimension_), bb_(timeGrid_) {
-        QL_REQUIRE(dimension_==timeSteps,
-                   "sequence generator dimensionality (" << dimension_
-                   << ") != timeSteps (" << timeSteps << ")");
-    }
+    : PathGenerator(process, TimeGrid(length, timeSteps), std::move(generator), brownianBridge) {}
 
     template <class GSG>
     PathGenerator<GSG>::PathGenerator(const ext::shared_ptr<StochasticProcess>& process,
@@ -104,6 +104,9 @@ namespace QuantLib {
         QL_REQUIRE(dimension_==timeGrid_.size()-1,
                    "sequence generator dimensionality (" << dimension_
                    << ") != timeSteps (" << timeGrid_.size()-1 << ")");
+        QL_REQUIRE(process_, "1-D stochastic process required");
+        for (Size i = 0; i < dimension_; ++i)
+            steps_.push_back(process_->step(timeGrid_[i], timeGrid_.dt(i)));
     }
 
     template <class GSG>
@@ -140,11 +143,8 @@ namespace QuantLib {
         path.front() = process_->x0();
 
         for (auto i=1U; i<path.length(); i++) {
-            auto t = timeGrid_[i-1];
-            auto dt = timeGrid_.dt(i-1);
-            path[i] = process_->evolve(t, path[i-1], dt,
-                                       antithetic ? -increments[i-1] :
-                                                     increments[i-1]);
+            path[i] = steps_[i - 1]->evolve(path[i - 1],
+                                            antithetic ? -increments[i - 1] : increments[i - 1]);
         }
 
         return next_;

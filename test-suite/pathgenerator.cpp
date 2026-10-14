@@ -19,13 +19,22 @@
 
 #include "toplevelfixture.hpp"
 #include "utilities.hpp"
+#include <ql/exercise.hpp>
+#include <ql/experimental/processes/extendedblackscholesprocess.hpp>
+#include <ql/instruments/basketoption.hpp>
+#include <ql/instruments/vanillaoption.hpp>
 #include <ql/methods/montecarlo/mctraits.hpp>
+#include <ql/pricingengines/basket/mceuropeanbasketengine.hpp>
+#include <ql/pricingengines/vanilla/mceuropeanengine.hpp>
 #include <ql/processes/blackscholesprocess.hpp>
 #include <ql/processes/geometricbrownianprocess.hpp>
 #include <ql/processes/ornsteinuhlenbeckprocess.hpp>
 #include <ql/processes/squarerootprocess.hpp>
 #include <ql/processes/stochasticprocessarray.hpp>
+#include <ql/termstructures/volatility/equityfx/blackvariancecurve.hpp>
+#include <ql/termstructures/yield/zerocurve.hpp>
 #include <ql/time/daycounters/actual360.hpp>
+#include <ql/time/daycounters/actual365fixed.hpp>
 #include <ql/quotes/simplequote.hpp>
 #include <ql/utilities/dataformatters.hpp>
 
@@ -297,6 +306,177 @@ BOOST_AUTO_TEST_CASE(testProcessArrayWithWrongDimension) {
     Array x0 = process.initialValues();
     BOOST_CHECK_THROW(process.evolve(0.0, x0, 0.1, Array(1, 0.1)), Error);
     BOOST_CHECK_THROW(process.evolve(0.0, x0, 0.1, Array(3, 0.1)), Error);
+}
+
+namespace {
+
+    // Derived classes that path generators don't recognize, so their
+    // steps call evolve() instead of using precomputed values.
+    class DerivedBlackScholesMertonProcess : public BlackScholesMertonProcess {
+      public:
+        using BlackScholesMertonProcess::BlackScholesMertonProcess;
+    };
+
+    class DerivedProcessArray : public StochasticProcessArray {
+      public:
+        using StochasticProcessArray::StochasticProcessArray;
+    };
+
+    class ScaledProcessArray : public StochasticProcessArray {
+      public:
+        using StochasticProcessArray::StochasticProcessArray;
+        Array evolve(Time t0, const Array& x0, Time dt, const Array& dw) const override {
+            return 2.0 * StochasticProcessArray::evolve(t0, x0, dt, dw);
+        }
+    };
+
+    const Matrix correlation = {{1.0, 0.5}, {0.5, 1.0}};
+
+    // one-year options priced by MC engines with fixed settings
+    ext::shared_ptr<Instrument>
+    europeanOption(const ext::shared_ptr<GeneralizedBlackScholesProcess>& process) {
+        Date today = Settings::instance().evaluationDate();
+        auto option = ext::make_shared<VanillaOption>(
+            ext::make_shared<PlainVanillaPayoff>(Option::Call, 100.0),
+            ext::make_shared<EuropeanExercise>(today + 1 * Years));
+        option->setPricingEngine(MakeMCEuropeanEngine<PseudoRandom>(process)
+                                     .withSteps(10)
+                                     .withSamples(1023)
+                                     .withAntitheticVariate()
+                                     .withSeed(42));
+        return option;
+    }
+
+    ext::shared_ptr<Instrument> basketOption(const ext::shared_ptr<StochasticProcessArray>& process) {
+        Date today = Settings::instance().evaluationDate();
+        auto option = ext::make_shared<BasketOption>(
+            ext::make_shared<AverageBasketPayoff>(
+                ext::make_shared<PlainVanillaPayoff>(Option::Call, 100.0), process->size()),
+            ext::make_shared<EuropeanExercise>(today + 1 * Years));
+        option->setPricingEngine(MakeMCEuropeanBasketEngine<PseudoRandom>(process)
+                                     .withSteps(10)
+                                     .withSamples(1023)
+                                     .withAntitheticVariate()
+                                     .withSeed(42));
+        return option;
+    }
+
+}
+
+BOOST_AUTO_TEST_CASE(testEnginesWithPrecomputedSteps) {
+
+    BOOST_TEST_MESSAGE("Testing MC engines with precomputed steps against evolve()...");
+
+    // time-dependent drifts and variances
+    Date today = Settings::instance().evaluationDate();
+    DayCounter dc = Actual365Fixed();
+    std::vector<Date> dates = {today, today + 6 * Months, today + 3 * Years};
+    Handle<YieldTermStructure> r(
+        ext::make_shared<ZeroCurve>(dates, std::vector<Rate>{0.01, 0.03, 0.04}, dc));
+    Handle<YieldTermStructure> q(
+        ext::make_shared<ZeroCurve>(dates, std::vector<Rate>{0.02, 0.01, 0.0}, dc));
+    std::vector<Handle<BlackVolTermStructure>> vols = {
+        Handle<BlackVolTermStructure>(flatVol(today, 0.20, dc)),
+        Handle<BlackVolTermStructure>(ext::make_shared<BlackVarianceCurve>(
+            today, std::vector<Date>(dates.begin() + 1, dates.end()),
+            std::vector<Volatility>{0.30, 0.25}, dc))};
+
+    std::vector<ext::shared_ptr<StochasticProcess1D>> processes, derived;
+    for (const auto& vol : vols) {
+        Handle<Quote> s(ext::make_shared<SimpleQuote>(100.0));
+        auto process = ext::make_shared<BlackScholesMertonProcess>(s, q, r, vol);
+        auto other = ext::make_shared<DerivedBlackScholesMertonProcess>(s, q, r, vol);
+        BOOST_CHECK_EQUAL(europeanOption(process)->NPV(), europeanOption(other)->NPV());
+        processes.push_back(process);
+        derived.push_back(other);
+    }
+    BOOST_CHECK_EQUAL(
+        basketOption(ext::make_shared<StochasticProcessArray>(processes, correlation))->NPV(),
+        basketOption(ext::make_shared<DerivedProcessArray>(derived, correlation))->NPV());
+}
+
+BOOST_AUTO_TEST_CASE(testPrecomputedStepsFollowQuotes) {
+
+    BOOST_TEST_MESSAGE("Testing that MC prices with precomputed steps follow quote changes...");
+
+    Date today = Settings::instance().evaluationDate();
+    DayCounter dc = Actual365Fixed();
+    auto rate = ext::make_shared<SimpleQuote>(0.03);
+    auto vol = ext::make_shared<SimpleQuote>(0.20);
+    auto makeOptions = [&]() {
+        auto process = ext::make_shared<BlackScholesMertonProcess>(
+            Handle<Quote>(ext::make_shared<SimpleQuote>(100.0)),
+            Handle<YieldTermStructure>(flatRate(today, 0.0, dc)),
+            Handle<YieldTermStructure>(flatRate(today, rate, dc)),
+            Handle<BlackVolTermStructure>(flatVol(today, vol, dc)));
+        std::vector<ext::shared_ptr<StochasticProcess1D>> processes(2, process);
+        return std::vector<ext::shared_ptr<Instrument>>{
+            europeanOption(process),
+            basketOption(ext::make_shared<StochasticProcessArray>(processes, correlation))};
+    };
+
+    auto options = makeOptions();
+    for (const auto& [quote, value] : {std::make_pair(vol, 0.30), std::make_pair(rate, 0.05)}) {
+        std::vector<Real> before;
+        for (const auto& option : options)
+            before.push_back(option->NPV());
+        quote->setValue(value);
+        auto fresh = makeOptions();
+        for (Size i = 0; i < options.size(); ++i) {
+            BOOST_CHECK(options[i]->NPV() != before[i]);
+            BOOST_CHECK_EQUAL(options[i]->NPV(), fresh[i]->NPV());
+        }
+    }
+}
+
+BOOST_AUTO_TEST_CASE(testProcessesOverridingEvolve) {
+
+    BOOST_TEST_MESSAGE("Testing path generation for processes overriding evolve()...");
+
+    typedef PseudoRandom::rsg_type rsg_type;
+    TimeGrid grid(2.0, 8);
+    Size steps = grid.size() - 1;
+
+    // compares the first path to the one obtained by calling evolve()
+    auto check1D = [&](const ext::shared_ptr<StochasticProcess1D>& process) {
+        rsg_type rsg = PseudoRandom::make_sequence_generator(steps, 42), copy = rsg;
+        PathGenerator<rsg_type> generator(process, grid, rsg, false);
+        const Path& path = generator.next().value;
+        const auto& dw = copy.nextSequence().value;
+        Real x = process->x0();
+        for (Size i = 0; i < steps; ++i) {
+            x = process->evolve(grid[i], x, grid.dt(i), dw[i]);
+            BOOST_CHECK_EQUAL(path[i + 1], x);
+        }
+    };
+    auto checkND = [&](const ext::shared_ptr<StochasticProcess>& process) {
+        Size n = process->factors();
+        rsg_type rsg = PseudoRandom::make_sequence_generator(n * steps, 42), copy = rsg;
+        MultiPathGenerator<rsg_type> generator(process, grid, rsg);
+        const MultiPath& path = generator.next().value;
+        const auto& dw = copy.nextSequence().value;
+        Array x = process->initialValues();
+        for (Size i = 0; i < steps; ++i) {
+            x = process->evolve(grid[i], x, grid.dt(i),
+                                Array(dw.begin() + i * n, dw.begin() + (i + 1) * n));
+            for (Size j = 0; j < x.size(); ++j)
+                BOOST_CHECK_EQUAL(path[j][i + 1], x[j]);
+        }
+    };
+
+    Date today = Settings::instance().evaluationDate();
+    DayCounter dc = Actual365Fixed();
+    Handle<Quote> s(ext::make_shared<SimpleQuote>(100.0));
+    Handle<YieldTermStructure> r(flatRate(today, 0.05, dc)), q(flatRate(today, 0.02, dc));
+    Handle<BlackVolTermStructure> v(flatVol(today, 0.20, dc));
+    std::vector<ext::shared_ptr<StochasticProcess1D>> extended(
+        2, ext::make_shared<ExtendedBlackScholesMertonProcess>(s, q, r, v));
+    std::vector<ext::shared_ptr<StochasticProcess1D>> bsm(
+        2, ext::make_shared<BlackScholesMertonProcess>(s, q, r, v));
+
+    check1D(extended[0]);
+    checkND(ext::make_shared<StochasticProcessArray>(extended, correlation));
+    checkND(ext::make_shared<ScaledProcessArray>(bsm, correlation));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

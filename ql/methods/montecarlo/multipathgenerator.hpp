@@ -45,6 +45,12 @@ namespace QuantLib {
 
         \ingroup mcarlo
 
+        \note The evolution over each time step is taken from the
+              process on construction (see StochasticProcess::step()),
+              so a generator might not follow later changes to the
+              process; Monte Carlo engines build a new one for each
+              calculation.
+
         \test the generated paths are checked against cached results
     */
     template <class GSG>
@@ -61,6 +67,7 @@ namespace QuantLib {
         const sample_type& next(bool antithetic) const;
         bool brownianBridge_;
         ext::shared_ptr<StochasticProcess> process_;
+        std::vector<ext::shared_ptr<StochasticProcess::Step>> steps_;
         GSG generator_;
         mutable sample_type next_;
         mutable Array temp_;
@@ -86,6 +93,8 @@ namespace QuantLib {
                    << "times the number of time steps");
         QL_REQUIRE(times.size() > 1,
                    "no times given");
+        for (Size i = 0; i < times.size() - 1; ++i)
+            steps_.push_back(process_->step(times[i], times.dt(i)));
     }
 
     template <class GSG>
@@ -125,12 +134,8 @@ namespace QuantLib {
 
             next_.weight = sequence_.weight;
 
-            const auto& timeGrid = path[0].timeGrid();
-            Time t, dt;
             for (auto i = 1U; i < path.pathSize(); i++) {
                 auto offset = (i-1)*n;
-                t = timeGrid[i-1];
-                dt = timeGrid.dt(i-1);
                 if (antithetic)
                     std::transform(sequence_.value.begin()+offset,
                                    sequence_.value.begin()+offset+n,
@@ -141,7 +146,7 @@ namespace QuantLib {
                               sequence_.value.begin()+offset+n,
                               temp_.begin());
 
-                asset = process_->evolve(t, asset, dt, temp_);
+                asset = steps_[i - 1]->evolve(asset, temp_);
                 for (auto j=0U; j<m; j++)
                     path[j][i] = asset[j];
             }

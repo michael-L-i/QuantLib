@@ -24,6 +24,50 @@
 
 namespace QuantLib {
 
+    namespace {
+
+        // the default steps forward to the evolve() methods of the process
+
+        class EvolveStep : public StochasticProcess::Step {
+          public:
+            EvolveStep(const StochasticProcess& process, Time t0, Time dt)
+            : process_(process), t0_(t0), dt_(dt) {}
+            Array evolve(const Array& x0, const Array& dw) const override {
+                return process_.evolve(t0_, x0, dt_, dw);
+            }
+
+          private:
+            const StochasticProcess& process_;
+            Time t0_, dt_;
+        };
+
+        class EvolveStep1D : public StochasticProcess1D::Step {
+          public:
+            EvolveStep1D(const StochasticProcess1D& process, Time t0, Time dt)
+            : process_(process), t0_(t0), dt_(dt) {}
+            Real evolve(Real x0, Real dw) const override {
+                return process_.evolve(t0_, x0, dt_, dw);
+            }
+
+          private:
+            const StochasticProcess1D& process_;
+            Time t0_, dt_;
+        };
+
+    }
+
+
+    // steps
+
+    Real StochasticProcess::Step::evolve(Real x0, Real dw) const {
+        return evolve(Array(1, x0), Array(1, dw))[0];
+    }
+
+    Array StochasticProcess1D::Step::evolve(const Array& x0, const Array& dw) const {
+        return Array(1, evolve(x0[0], dw[0]));
+    }
+
+
     // base class
 
     StochasticProcess::StochasticProcess(ext::shared_ptr<discretization> disc)
@@ -54,6 +98,10 @@ namespace QuantLib {
     Array StochasticProcess::evolve(Time t0, const Array& x0,
                                     Time dt, const Array& dw) const {
         return apply(expectation(t0,x0,dt), stdDeviation(t0,x0,dt)*dw);
+    }
+
+    ext::shared_ptr<StochasticProcess::Step> StochasticProcess::step(Time t0, Time dt) const {
+        return ext::make_shared<EvolveStep>(*this, t0, dt);
     }
 
     Array StochasticProcess::apply(const Array& x0,
@@ -90,6 +138,10 @@ namespace QuantLib {
     Real StochasticProcess1D::evolve(Time t0, Real x0,
                                      Time dt, Real dw) const {
         return apply(expectation(t0,x0,dt), stdDeviation(t0,x0,dt)*dw);
+    }
+
+    ext::shared_ptr<StochasticProcess::Step> StochasticProcess1D::step(Time t0, Time dt) const {
+        return ext::make_shared<EvolveStep1D>(*this, t0, dt);
     }
 
     Real StochasticProcess1D::apply(Real x0, Real dx) const {
