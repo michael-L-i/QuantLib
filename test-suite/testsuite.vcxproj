@@ -666,6 +666,7 @@
     <ClCompile Include="bondforward.cpp" />
     <ClCompile Include="bonds.cpp" />
     <ClCompile Include="brownianbridge.cpp" />
+    <ClCompile Include="bucketedcurverisk.cpp" />
     <ClCompile Include="businessdayconventions.cpp" />
     <ClCompile Include="calendars.cpp" />
     <ClCompile Include="callablebonds.cpp" />

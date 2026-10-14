@@ -21,6 +21,7 @@ set(QL_TEST_SOURCES
     bondforward.cpp
     bonds.cpp
     brownianbridge.cpp
+    bucketedcurverisk.cpp
     businessdayconventions.cpp
     calendars.cpp
     callablebonds.cpp

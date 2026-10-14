@@ -2,6 +2,7 @@
 /* Add the files to be included into Makefile.am instead. */
 
 #include <ql/experimental/termstructures/basisswapratehelpers.hpp>
+#include <ql/experimental/termstructures/bucketedcurverisk.hpp>
 #include <ql/experimental/termstructures/crosscurrencyratehelpers.hpp>
 #include <ql/experimental/termstructures/overnightindexedfundingratehelper.hpp>
 

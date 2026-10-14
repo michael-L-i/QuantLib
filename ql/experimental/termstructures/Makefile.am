@@ -5,11 +5,13 @@ this_includedir=${includedir}/${subdir}
 this_include_HEADERS = \
     all.hpp \
     basisswapratehelpers.hpp \
+    bucketedcurverisk.hpp \
     crosscurrencyratehelpers.hpp \
     overnightindexedfundingratehelper.hpp
 
 cpp_files = \
     basisswapratehelpers.cpp \
+    bucketedcurverisk.cpp \
     crosscurrencyratehelpers.cpp \
     overnightindexedfundingratehelper.cpp
 

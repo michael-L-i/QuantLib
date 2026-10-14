@@ -22,6 +22,7 @@ QL_TEST_SRCS = \
 	bondforward.cpp \
 	bonds.cpp \
 	brownianbridge.cpp \
+	bucketedcurverisk.cpp \
 	businessdayconventions.cpp \
 	calendars.cpp \
 	callablebonds.cpp \

@@ -4479,6 +4479,9 @@
     <ClInclude Include="ql\experimental\termstructures\basisswapratehelpers.hpp">
       <Filter>experimental\termstructures</Filter>
     </ClInclude>
+    <ClInclude Include="ql\experimental\termstructures\bucketedcurverisk.hpp">
+      <Filter>experimental\termstructures</Filter>
+    </ClInclude>
     <ClInclude Include="ql\experimental\termstructures\crosscurrencyratehelpers.hpp">
       <Filter>experimental\termstructures</Filter>
     </ClInclude>
@@ -7403,6 +7406,9 @@
       <Filter>experimental\fx</Filter>
     </ClCompile>
     <ClCompile Include="ql\experimental\termstructures\basisswapratehelpers.cpp">
+      <Filter>experimental\termstructures</Filter>
+    </ClCompile>
+    <ClCompile Include="ql\experimental\termstructures\bucketedcurverisk.cpp">
       <Filter>experimental\termstructures</Filter>
     </ClCompile>
     <ClCompile Include="ql\experimental\termstructures\crosscurrencyratehelpers.cpp">
