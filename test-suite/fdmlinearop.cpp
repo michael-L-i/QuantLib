@@ -21,6 +21,7 @@
 
 #include "toplevelfixture.hpp"
 #include "utilities.hpp"
+#include <ql/math/comparison.hpp>
 #include <ql/math/integrals/discreteintegrals.hpp>
 #include <ql/math/interpolations/bicubicsplineinterpolation.hpp>
 #include <ql/math/interpolations/bilinearinterpolation.hpp>
@@ -828,6 +829,36 @@ BOOST_AUTO_TEST_CASE(testTripleBandMapSolve) {
             BOOST_FAIL("solve and apply are not consistent "
                 << "\n expected      : " << u[i]
                 << "\n calculated    : " << t[i]);
+        }
+    }
+}
+
+BOOST_AUTO_TEST_CASE(testTripleBandScalarAxpyb) {
+
+    BOOST_TEST_MESSAGE("Testing scalar triple-band axpyb...");
+
+    const auto mesher = ext::make_shared<FdmMesherComposite>(
+        ext::make_shared<Concentrating1dMesher>(-1.0, 2.0, 50, std::make_pair(0.5, 0.1)));
+    const Size n = mesher->layout()->size();
+
+    const FirstDerivativeOp dx(0, mesher);
+    const SecondDerivativeOp dxx(0, mesher);
+    const Real a = 0.0321, c = 0.0237, b = -0.0453;
+
+    TripleBandLinearOp expected(0, mesher), calculated(0, mesher);
+    expected.axpyb(Array(1, a), dx, dxx.mult(Array(n, c)), Array(1, b));
+    calculated.axpyb(a, dx, c, dxx, b);
+
+    const SparseMatrix e = expected.toMatrix(), r = calculated.toMatrix();
+    for (Size i=0; i < n; ++i) {
+        for (Size j=(i > 0 ? i-1 : 0); j < std::min(i+2, n); ++j) {
+            if (!close_enough(e(i, j), r(i, j))) {
+                BOOST_FAIL("scalar and array axpyb differ"
+                    << "\n row           : " << i
+                    << "\n column        : " << j
+                    << "\n expected      : " << e(i, j)
+                    << "\n calculated    : " << r(i, j));
+            }
         }
     }
 }

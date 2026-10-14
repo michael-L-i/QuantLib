@@ -58,6 +58,10 @@ namespace QuantLib {
         // some very basic linear algebra routines
         void axpyb(const Array& a, const TripleBandLinearOp& x,
                    const TripleBandLinearOp& y, const Array& b);
+        // a*x + c*y + b with scalar coefficients; same result as
+        // axpyb(Array(1, a), x, y.mult(Array(size, c)), Array(1, b)) but in place
+        void axpyb(Real a, const TripleBandLinearOp& x,
+                   Real c, const TripleBandLinearOp& y, Real b);
 
         void swap(TripleBandLinearOp& m) noexcept;
 
