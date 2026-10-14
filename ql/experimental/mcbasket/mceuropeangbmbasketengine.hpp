@@ -50,6 +50,14 @@ namespace QuantLib {
         suffices; more steps only reproduce the results of
         MCEuropeanBasketEngine with the same number of steps.
 
+        If QuantLib is compiled with OpenMP support, the paths can be
+        simulated on several threads; otherwise, the chunks of paths
+        meant for each thread are simulated one after the other.  Each
+        chunk draws its variates from its own position in the same random
+        sequence, so the results don't depend on the number of threads.
+        The payoff is evaluated concurrently and must be thread-safe, as
+        the payoffs provided by the library are.
+
         \ingroup basketengines
 
         \test the results are checked against MCEuropeanBasketEngine.
@@ -62,7 +70,8 @@ namespace QuantLib {
             Size timeSteps,
             Size requiredSamples,
             bool antitheticVariate = false,
-            BigNatural seed = 0);
+            BigNatural seed = 0,
+            Size threads = 1);
         void calculate() const override;
 
       private:
@@ -71,6 +80,7 @@ namespace QuantLib {
         Size timeSteps_, requiredSamples_;
         bool antitheticVariate_;
         BigNatural seed_;
+        Size threads_;
     };
 
 }

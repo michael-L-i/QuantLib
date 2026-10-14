@@ -26,6 +26,7 @@
 #include <ql/termstructures/volatility/equityfx/blackconstantvol.hpp>
 #include <ql/timegrid.hpp>
 #include <algorithm>
+#include <exception>
 #include <numeric>
 #include <utility>
 
@@ -111,14 +112,16 @@ namespace QuantLib {
         Size timeSteps,
         Size requiredSamples,
         bool antitheticVariate,
-        BigNatural seed)
+        BigNatural seed,
+        Size threads)
     : processes_(std::move(processes)), timeSteps_(timeSteps), requiredSamples_(requiredSamples),
-      antitheticVariate_(antitheticVariate), seed_(seed) {
+      antitheticVariate_(antitheticVariate), seed_(seed), threads_(threads) {
         QL_REQUIRE(!processes_.empty(), "no processes given");
         QL_REQUIRE(rho.rows() == processes_.size() && rho.columns() == processes_.size(),
                    "correlation matrix and number of processes don't match");
         QL_REQUIRE(timeSteps_ > 0, "timeSteps must be positive");
         QL_REQUIRE(requiredSamples_ > 1, "at least two samples are required");
+        QL_REQUIRE(threads_ > 0, "at least one thread is required");
         // the same root as StochasticProcessArray, hence the same paths
         sqrtCorrelation_ = pseudoSqrt(rho, SalvagingAlgorithm::Spectral);
         for (const auto& process : processes_)
@@ -156,10 +159,40 @@ namespace QuantLib {
         }
         const DiscountFactor discount = processes_[0]->riskFreeRate()->discount(maturity);
 
+        const Paths paths{sqrtCorrelation_, stdDev, drift, x0,
+                          *payoff, discount, antitheticVariate_};
         std::vector<Real> samples(requiredSamples_);
         MersenneTwisterUniformRng rng(seed_);
-        simulate({sqrtCorrelation_, stdDev, drift, x0, *payoff, discount, antitheticVariate_}, rng,
-                 samples.data(), samples.data() + samples.size());
+        if (threads_ == 1) {
+            simulate(paths, rng, samples.data(), samples.data() + samples.size());
+        } else {
+            // Each chunk of paths draws its variates from its own position in
+            // the sequence.  The positions are found first, by skipping over
+            // the variates of the previous chunks; this takes a fraction of
+            // the time needed to draw them.
+            const Size chunks = 4 * threads_;
+            const auto first = [&](Size k) { return samples.data() + k * samples.size() / chunks; };
+            std::vector<MersenneTwisterUniformRng> generators;
+            generators.reserve(chunks);
+            for (Size k = 0; k < chunks; ++k) {
+                generators.push_back(rng);
+                rng.discard((first(k + 1) - first(k)) * n * timeSteps_);
+            }
+            std::exception_ptr error;
+            #pragma omp parallel for schedule(dynamic) num_threads(static_cast<int>(threads_))
+            for (long c = 0; c < static_cast<long>(chunks); ++c) {
+                const auto k = static_cast<Size>(c);
+                // exceptions must not leave a parallel region
+                try {
+                    simulate(paths, generators[k], first(k), first(k + 1));
+                } catch (...) {
+                    #pragma omp critical
+                    error = std::current_exception();
+                }
+            }
+            if (error)
+                std::rethrow_exception(error);
+        }
 
         GeneralStatistics statistics;
         statistics.reserve(samples.size());

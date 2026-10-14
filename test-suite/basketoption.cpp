@@ -3091,6 +3091,60 @@ BOOST_AUTO_TEST_CASE(testMCEuropeanGBMBasketEngineUnsupportedInputs) {
     BOOST_CHECK_THROW(european.NPV(), Error);
 }
 
+BOOST_AUTO_TEST_CASE(testMCEuropeanGBMBasketEngineThreads) {
+    BOOST_TEST_MESSAGE("Testing that the MC European GBM basket engine "
+                       "gives the same results on any number of threads...");
+
+    const DayCounter dc = Actual365Fixed();
+    const Date today = Date(1, March, 2025);
+    Settings::instance().evaluationDate() = today;
+
+    std::vector<ext::shared_ptr<GeneralizedBlackScholesProcess>> processes;
+    for (Volatility vol : {0.2, 0.3, 0.25})
+        processes.push_back(ext::make_shared<BlackScholesMertonProcess>(
+            Handle<Quote>(ext::make_shared<SimpleQuote>(100.0)),
+            Handle<YieldTermStructure>(flatRate(today, 0.01, dc)),
+            Handle<YieldTermStructure>(flatRate(today, 0.03, dc)),
+            Handle<BlackVolTermStructure>(flatVol(today, vol, dc))));
+    const Matrix rho = {
+        {1.0, 0.5, 0.2},
+        {0.5, 1.0, 0.4},
+        {0.2, 0.4, 1.0},
+    };
+    const auto exercise = ext::make_shared<EuropeanExercise>(today + Period(1, Years));
+    BasketOption option(ext::make_shared<MaxBasketPayoff>(
+                            ext::make_shared<PlainVanillaPayoff>(Option::Call, 105.0)),
+                        exercise);
+
+    // chunks of paths start from their own positions in the random sequence,
+    // so the results are the same as with one thread, not just close
+    const Size steps = 12, samples = 5001;
+    const BigNatural seed = 42;
+    option.setPricingEngine(
+        ext::make_shared<MCEuropeanGBMBasketEngine>(processes, rho, steps, samples, true, seed, 1));
+    const Real expected = option.NPV(), expectedError = option.errorEstimate();
+    for (Size threads : {2, 3, 8}) {
+        option.setPricingEngine(ext::make_shared<MCEuropeanGBMBasketEngine>(
+            processes, rho, steps, samples, true, seed, threads));
+        const Real calculated = option.NPV(), error = option.errorEstimate();
+        if (calculated != expected || error != expectedError)
+            BOOST_ERROR("failed to reproduce the single-threaded results"
+                        << std::setprecision(17) << "\n    threads:        " << threads
+                        << "\n    expected value: " << expected
+                        << "\n    calculated:     " << calculated
+                        << "\n    expected error: " << expectedError
+                        << "\n    calculated:     " << error);
+    }
+
+    // errors raised by the payoff on any thread reach the caller
+    BasketOption spread(ext::make_shared<SpreadBasketPayoff>(
+                            ext::make_shared<PlainVanillaPayoff>(Option::Call, 0.0)),
+                        exercise);
+    spread.setPricingEngine(
+        ext::make_shared<MCEuropeanGBMBasketEngine>(processes, rho, 1, samples, false, seed, 4));
+    BOOST_CHECK_THROW(spread.NPV(), Error);
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 
 BOOST_AUTO_TEST_SUITE_END()

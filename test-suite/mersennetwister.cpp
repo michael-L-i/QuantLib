@@ -485,6 +485,31 @@ BOOST_AUTO_TEST_CASE(testValues) {
                    "during parallel computation");
 }
 
+BOOST_AUTO_TEST_CASE(testDiscard) {
+
+    BOOST_TEST_MESSAGE("Testing Mersenne twister discard...");
+
+    // the state is regenerated every 624 draws; 524 more after 100 draws
+    // reach the end of the first block exactly
+    for (Size drawnFirst : {0, 100}) {
+        for (Size n : {0, 1, 524, 624, 5000}) {
+            MersenneTwisterUniformRng drawn(42), skipped(42);
+            for (Size i = 0; i < drawnFirst; ++i) {
+                drawn.nextInt32();
+                skipped.nextInt32();
+            }
+            for (Size i = 0; i < n; ++i)
+                drawn.nextInt32();
+            skipped.discard(n);
+            for (Size i = 0; i < 1000; ++i) {
+                if (drawn.nextInt32() != skipped.nextInt32())
+                    BOOST_FAIL("discarding " << n << " numbers after drawing " << drawnFirst
+                                             << " differs from drawing them");
+            }
+        }
+    }
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 
 BOOST_AUTO_TEST_SUITE_END()
