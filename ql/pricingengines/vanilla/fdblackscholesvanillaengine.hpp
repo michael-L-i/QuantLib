@@ -38,6 +38,14 @@ namespace QuantLib {
     //! Finite-differences Black Scholes vanilla option engine
     /*! \ingroup vanillaengines
 
+        With \p constantCoefficients, flat rates and volatility (FlatForward
+        curves with continuous or compounded rates and a BlackConstantVol) are
+        rolled back with a time-independent operator that is assembled once
+        and factorized once per step size.  This is faster, but results differ
+        by rounding (about 1e-13 relative) from the default, which recomputes
+        the coefficients at every step.  Other term structures, local
+        volatility and quanto options use the default.
+
         \test the correctness of the returned value is tested by
               reproducing results available in web/literature
               and comparison with Black pricing.
@@ -57,7 +65,8 @@ namespace QuantLib {
             const FdmSchemeDesc& schemeDesc = FdmSchemeDesc::Douglas(),
             bool localVol = false,
             Real illegalLocalVolOverwrite = -Null<Real>(),
-            CashDividendModel cashDividendModel = Spot);
+            CashDividendModel cashDividendModel = Spot,
+            bool constantCoefficients = false);
 
         FdBlackScholesVanillaEngine(
             ext::shared_ptr<GeneralizedBlackScholesProcess>,
@@ -68,7 +77,8 @@ namespace QuantLib {
             const FdmSchemeDesc& schemeDesc = FdmSchemeDesc::Douglas(),
             bool localVol = false,
             Real illegalLocalVolOverwrite = -Null<Real>(),
-            CashDividendModel cashDividendModel = Spot);
+            CashDividendModel cashDividendModel = Spot,
+            bool constantCoefficients = false);
 
         FdBlackScholesVanillaEngine(
             ext::shared_ptr<GeneralizedBlackScholesProcess>,
@@ -79,7 +89,8 @@ namespace QuantLib {
             const FdmSchemeDesc& schemeDesc = FdmSchemeDesc::Douglas(),
             bool localVol = false,
             Real illegalLocalVolOverwrite = -Null<Real>(),
-            CashDividendModel cashDividendModel = Spot);
+            CashDividendModel cashDividendModel = Spot,
+            bool constantCoefficients = false);
 
         FdBlackScholesVanillaEngine(
             ext::shared_ptr<GeneralizedBlackScholesProcess>,
@@ -91,7 +102,8 @@ namespace QuantLib {
             const FdmSchemeDesc& schemeDesc = FdmSchemeDesc::Douglas(),
             bool localVol = false,
             Real illegalLocalVolOverwrite = -Null<Real>(),
-            CashDividendModel cashDividendModel = Spot);
+            CashDividendModel cashDividendModel = Spot,
+            bool constantCoefficients = false);
 
         void calculate() const override;
 
@@ -104,6 +116,7 @@ namespace QuantLib {
         Real illegalLocalVolOverwrite_;
         ext::shared_ptr<FdmQuantoHelper> quantoHelper_;
         CashDividendModel cashDividendModel_;
+        bool constantCoefficients_;
     };
 
 
@@ -134,6 +147,9 @@ namespace QuantLib {
         MakeFdBlackScholesVanillaEngine& withCashDividendModel(
             FdBlackScholesVanillaEngine::CashDividendModel cashDividendModel);
 
+        MakeFdBlackScholesVanillaEngine& withConstantCoefficients(
+            bool constantCoefficients = true);
+
         operator ext::shared_ptr<PricingEngine>() const;
       private:
         ext::shared_ptr<GeneralizedBlackScholesProcess> process_;
@@ -144,6 +160,7 @@ namespace QuantLib {
         Real illegalLocalVolOverwrite_;
         ext::shared_ptr<FdmQuantoHelper> quantoHelper_;
         FdBlackScholesVanillaEngine::CashDividendModel cashDividendModel_ = FdBlackScholesVanillaEngine::Spot;
+        bool constantCoefficients_ = false;
     };
 
 }

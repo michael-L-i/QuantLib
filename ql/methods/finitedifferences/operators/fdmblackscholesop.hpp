@@ -32,11 +32,21 @@
 #include <ql/methods/finitedifferences/operators/firstderivativeop.hpp>
 #include <ql/methods/finitedifferences/operators/triplebandlinearop.hpp>
 #include <ql/methods/finitedifferences/operators/fdmlinearopcomposite.hpp>
+#include <map>
 
 namespace QuantLib {
 
     class FdmBlackScholesOp : public FdmLinearOpComposite {
       public:
+        /*! With \p constantCoefficients, flat rates and volatility (FlatForward
+            curves with continuous or compounded rates and a BlackConstantVol)
+            give a time-independent operator: it is assembled once and the
+            implicit step is factorized once per step size.  Results then differ
+            from the default by rounding only (about 1e-13 relative), since the
+            default derives the rates and variance of each step from discount
+            factors and Black variances.  Other term structures, local
+            volatility and quanto adjustments always use the default.
+        */
         FdmBlackScholesOp(
             const ext::shared_ptr<FdmMesher>& mesher,
             const ext::shared_ptr<GeneralizedBlackScholesProcess>& process,
@@ -44,7 +54,8 @@ namespace QuantLib {
             bool localVol = false,
             Real illegalLocalVolOverwrite = -Null<Real>(),
             Size direction = 0,
-            ext::shared_ptr<FdmQuantoHelper> quantoHelper = ext::shared_ptr<FdmQuantoHelper>());
+            ext::shared_ptr<FdmQuantoHelper> quantoHelper = ext::shared_ptr<FdmQuantoHelper>(),
+            bool constantCoefficients = false);
 
         Size size() const override;
         void setTime(Time t1, Time t2) override;
@@ -58,6 +69,8 @@ namespace QuantLib {
         std::vector<SparseMatrix> toMatrixDecomp() const override;
 
       private:
+        void assemble(Time t1, Time t2);
+
         const ext::shared_ptr<FdmMesher> mesher_;
         const ext::shared_ptr<YieldTermStructure> rTS_, qTS_;
         const ext::shared_ptr<BlackVolTermStructure> volTS_;
@@ -70,6 +83,9 @@ namespace QuantLib {
         const Real illegalLocalVolOverwrite_;
         const Size direction_;
         const ext::shared_ptr<FdmQuantoHelper> quantoHelper_;
+        const bool constantCoefficients_;
+        mutable Real lastDt_ = Null<Real>();
+        mutable std::map<Real, TripleBandLinearOp::Factorization> factorizations_;
     };
 }
 

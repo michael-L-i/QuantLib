@@ -25,9 +25,21 @@
 #include <ql/methods/finitedifferences/operators/fdmblackscholesop.hpp>
 #include <ql/methods/finitedifferences/operators/fdmlinearoplayout.hpp>
 #include <ql/methods/finitedifferences/operators/secondderivativeop.hpp>
+#include <ql/termstructures/volatility/equityfx/blackconstantvol.hpp>
+#include <ql/termstructures/yield/flatforward.hpp>
 #include <utility>
 
 namespace QuantLib {
+
+    namespace {
+        // a flat forward curve has the same continuous forward rate everywhere
+        // unless it compounds simply over some period
+        bool isFlat(const ext::shared_ptr<YieldTermStructure>& ts) {
+            const auto flat = ext::dynamic_pointer_cast<FlatForward>(ts);
+            return flat != nullptr
+                && (flat->compounding() == Continuous || flat->compounding() == Compounded);
+        }
+    }
 
     FdmBlackScholesOp::FdmBlackScholesOp(
         const ext::shared_ptr<FdmMesher>& mesher,
@@ -36,7 +48,8 @@ namespace QuantLib {
         bool localVol,
         Real illegalLocalVolOverwrite,
         Size direction,
-        ext::shared_ptr<FdmQuantoHelper> quantoHelper)
+        ext::shared_ptr<FdmQuantoHelper> quantoHelper,
+        bool constantCoefficients)
     : mesher_(mesher), rTS_(bsProcess->riskFreeRate().currentLink()),
       qTS_(bsProcess->dividendYield().currentLink()),
       volTS_(bsProcess->blackVolatility().currentLink()),
@@ -46,9 +59,22 @@ namespace QuantLib {
       dxMap_(FirstDerivativeOp(direction, mesher)), dxxMap_(SecondDerivativeOp(direction, mesher)),
       mapT_(direction, mesher), strike_(strike),
       illegalLocalVolOverwrite_(illegalLocalVolOverwrite), direction_(direction),
-      quantoHelper_(std::move(quantoHelper)) {}
+      quantoHelper_(std::move(quantoHelper)),
+      constantCoefficients_(constantCoefficients && localVol_ == nullptr
+                            && quantoHelper_ == nullptr && isFlat(rTS_) && isFlat(qTS_)
+                            && ext::dynamic_pointer_cast<BlackConstantVol>(volTS_) != nullptr) {
+        // Every interval gives the same coefficients up to rounding; the unit
+        // interval gives the variance exactly and the rates to about 1e-16.
+        if (constantCoefficients_)
+            assemble(0.0, 1.0);
+    }
 
     void FdmBlackScholesOp::setTime(Time t1, Time t2) {
+        if (!constantCoefficients_)
+            assemble(t1, t2);
+    }
+
+    void FdmBlackScholesOp::assemble(Time t1, Time t2) {
         const Rate r = rTS_->forwardRate(t1, t2, Continuous).rate();
         const Rate q = qTS_->forwardRate(t1, t2, Continuous).rate();
 
@@ -110,11 +136,23 @@ namespace QuantLib {
 
     Array FdmBlackScholesOp::solve_splitting(Size direction,
                                              const Array& r, Real dt) const {
-        if (direction == direction_)
-            return mapT_.solve_splitting(r, dt, 1.0);
-        else {
+        if (direction != direction_)
             return r;
+        if (!constantCoefficients_)
+            return mapT_.solve_splitting(r, dt, 1.0);
+
+        // The bands are fixed, so a step size that repeats is factorized once.
+        // Sizes used only once, by steps cut short at stopping times, are
+        // solved directly, which gives the same result at the same cost.
+        auto f = factorizations_.find(dt);
+        if (f == factorizations_.end()) {
+            const bool repeated = (dt == lastDt_);
+            lastDt_ = dt;
+            if (!repeated)
+                return mapT_.solve_splitting(r, dt, 1.0);
+            f = factorizations_.emplace(dt, mapT_.factorize(dt, 1.0)).first;
         }
+        return mapT_.solve_splitting(r, f->second);
     }
 
     Array FdmBlackScholesOp::preconditioner(const Array& r,

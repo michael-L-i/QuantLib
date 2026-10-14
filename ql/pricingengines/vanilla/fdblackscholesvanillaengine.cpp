@@ -42,10 +42,12 @@ namespace QuantLib {
         const FdmSchemeDesc& schemeDesc,
         bool localVol,
         Real illegalLocalVolOverwrite,
-        CashDividendModel cashDividendModel)
+        CashDividendModel cashDividendModel,
+        bool constantCoefficients)
     : process_(std::move(process)), tGrid_(tGrid), xGrid_(xGrid),
       dampingSteps_(dampingSteps), schemeDesc_(schemeDesc), localVol_(localVol),
-      illegalLocalVolOverwrite_(illegalLocalVolOverwrite), cashDividendModel_(cashDividendModel) {
+      illegalLocalVolOverwrite_(illegalLocalVolOverwrite), cashDividendModel_(cashDividendModel),
+      constantCoefficients_(constantCoefficients) {
         registerWith(process_);
     }
 
@@ -58,11 +60,12 @@ namespace QuantLib {
         const FdmSchemeDesc& schemeDesc,
         bool localVol,
         Real illegalLocalVolOverwrite,
-        CashDividendModel cashDividendModel)
+        CashDividendModel cashDividendModel,
+        bool constantCoefficients)
     : process_(std::move(process)), dividends_(std::move(dividends)),
       tGrid_(tGrid), xGrid_(xGrid), dampingSteps_(dampingSteps), schemeDesc_(schemeDesc),
       localVol_(localVol), illegalLocalVolOverwrite_(illegalLocalVolOverwrite),
-      cashDividendModel_(cashDividendModel) {
+      cashDividendModel_(cashDividendModel), constantCoefficients_(constantCoefficients) {
         registerWith(process_);
     }
 
@@ -75,12 +78,13 @@ namespace QuantLib {
         const FdmSchemeDesc& schemeDesc,
         bool localVol,
         Real illegalLocalVolOverwrite,
-        CashDividendModel cashDividendModel)
+        CashDividendModel cashDividendModel,
+        bool constantCoefficients)
     : process_(std::move(process)),
       tGrid_(tGrid), xGrid_(xGrid), dampingSteps_(dampingSteps),
       schemeDesc_(schemeDesc), localVol_(localVol),
       illegalLocalVolOverwrite_(illegalLocalVolOverwrite), quantoHelper_(std::move(quantoHelper)),
-      cashDividendModel_(cashDividendModel) {
+      cashDividendModel_(cashDividendModel), constantCoefficients_(constantCoefficients) {
         registerWith(process_);
         registerWith(quantoHelper_);
     }
@@ -95,12 +99,13 @@ namespace QuantLib {
         const FdmSchemeDesc& schemeDesc,
         bool localVol,
         Real illegalLocalVolOverwrite,
-        CashDividendModel cashDividendModel)
+        CashDividendModel cashDividendModel,
+        bool constantCoefficients)
     : process_(std::move(process)), dividends_(std::move(dividends)),
       tGrid_(tGrid), xGrid_(xGrid), dampingSteps_(dampingSteps),
       schemeDesc_(schemeDesc), localVol_(localVol),
       illegalLocalVolOverwrite_(illegalLocalVolOverwrite), quantoHelper_(std::move(quantoHelper)),
-      cashDividendModel_(cashDividendModel) {
+      cashDividendModel_(cashDividendModel), constantCoefficients_(constantCoefficients) {
         registerWith(process_);
         registerWith(quantoHelper_);
     }
@@ -205,7 +210,7 @@ namespace QuantLib {
                 Handle<GeneralizedBlackScholesProcess>(process_),
                 payoff->strike(), solverDesc, schemeDesc_,
                 localVol_, illegalLocalVolOverwrite_,
-                Handle<FdmQuantoHelper>(quantoHelper_)));
+                Handle<FdmQuantoHelper>(quantoHelper_), constantCoefficients_));
 
         const Real spot = process_->x0() + spotAdjustment;
 
@@ -281,6 +286,12 @@ namespace QuantLib {
         return *this;
     }
 
+    MakeFdBlackScholesVanillaEngine&
+    MakeFdBlackScholesVanillaEngine::withConstantCoefficients(bool constantCoefficients) {
+        constantCoefficients_ = constantCoefficients;
+        return *this;
+    }
+
     MakeFdBlackScholesVanillaEngine::operator
     ext::shared_ptr<PricingEngine>() const {
         return ext::make_shared<FdBlackScholesVanillaEngine>(
@@ -291,7 +302,8 @@ namespace QuantLib {
                 *schemeDesc_,
                 localVol_,
                 illegalLocalVolOverwrite_,
-                cashDividendModel_);
+                cashDividendModel_,
+                constantCoefficients_);
     }
 
 }
