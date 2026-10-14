@@ -110,6 +110,12 @@ namespace QuantLib {
 
     // inline definitions
 
+    namespace detail {
+        [[noreturn]] inline void throwNoDayCounterImplError() {
+            QL_FAIL("no day counter implementation provided");
+        }
+    }
+
     inline bool DayCounter::empty() const {
         return !impl_;
     }
@@ -121,13 +127,15 @@ namespace QuantLib {
 
     inline Date::serial_type DayCounter::dayCount(const Date& d1,
                                                   const Date& d2) const {
-        QL_REQUIRE(impl_, "no day counter implementation provided");
+        if (!impl_)
+            detail::throwNoDayCounterImplError();
         return impl_->dayCount(d1,d2);
     }
 
     inline Time DayCounter::yearFraction(const Date& d1, const Date& d2,
         const Date& refPeriodStart, const Date& refPeriodEnd) const {
-            QL_REQUIRE(impl_, "no day counter implementation provided");
+            if (!impl_)
+                detail::throwNoDayCounterImplError();
             return impl_->yearFraction(d1,d2,refPeriodStart,refPeriodEnd);
     }
 

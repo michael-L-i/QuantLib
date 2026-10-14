@@ -205,6 +205,12 @@ namespace QuantLib {
 
     // inline definitions
 
+    namespace detail {
+        [[noreturn]] inline void throwNoCalendarImplError() {
+            QL_FAIL("no calendar implementation provided");
+        }
+    }
+
     inline bool Calendar::empty() const {
         return !impl_;
     }
@@ -227,7 +233,8 @@ namespace QuantLib {
     }
 
     inline bool Calendar::isBusinessDay(const Date& d) const {
-        QL_REQUIRE(impl_, "no calendar implementation provided");
+        if (!impl_)
+            detail::throwNoCalendarImplError();
 
 #ifdef QL_HIGH_RESOLUTION_DATE
         const Date _d(d.dayOfMonth(), d.month(), d.year());
@@ -267,7 +274,8 @@ namespace QuantLib {
     }
 
     inline bool Calendar::isWeekend(Weekday w) const {
-        QL_REQUIRE(impl_, "no calendar implementation provided");
+        if (!impl_)
+            detail::throwNoCalendarImplError();
         return impl_->isWeekend(w);
     }
 
