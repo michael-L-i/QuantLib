@@ -48,6 +48,16 @@ namespace QuantLib {
         Array apply(const Array& r) const override;
         Array solve_splitting(const Array& r, Real a, Real b = 1.0) const;
 
+        //! Thomas factorization of b + a*L, valid while the bands are unchanged
+        class Factorization {
+            friend class TripleBandLinearOp;
+            Array al_, beta_, temp_; // a*lower, reciprocal pivots, upper multipliers
+        };
+        Factorization factorize(Real a, Real b = 1.0) const;
+        /*! same result as solve_splitting(r, a, b), but without the divisions
+            that make the elimination slow when it is repeated for every step */
+        Array solve_splitting(const Array& r, const Factorization& f) const;
+
         TripleBandLinearOp mult(const Array& u) const;
         // interpret u as the diagonal of a diagonal matrix, multiplied on LHS
         TripleBandLinearOp multR(const Array& u) const;

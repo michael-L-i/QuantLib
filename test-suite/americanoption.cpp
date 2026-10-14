@@ -39,7 +39,9 @@
 #include <ql/pricingengines/vanilla/qdplusamericanengine.hpp>
 #include <ql/termstructures/volatility/equityfx/blackconstantvol.hpp>
 #include <ql/termstructures/yield/flatforward.hpp>
+#include <ql/termstructures/yield/zerocurve.hpp>
 #include <ql/time/daycounters/actual360.hpp>
+#include <ql/time/daycounters/actual365fixed.hpp>
 #include <ql/time/daycounters/thirty360.hpp>
 #include <ql/utilities/dataformatters.hpp>
 #include <map>
@@ -1234,6 +1236,91 @@ BOOST_AUTO_TEST_CASE(testTodayIsDividendDate) {
                    << "\n    difference:   " << diffNpv
                    << "\n    tolerance:    " << tol);
     }
+}
+
+BOOST_AUTO_TEST_CASE(testFdConstantCoefficients) {
+    BOOST_TEST_MESSAGE("Testing FD Black-Scholes engine with constant coefficients...");
+
+    const DayCounter dc = Actual365Fixed();
+    const Date today = Date(4, March, 2026);
+    Settings::instance().evaluationDate() = today;
+
+    const auto process = [&](const ext::shared_ptr<YieldTermStructure>& rTS) {
+        return ext::make_shared<BlackScholesMertonProcess>(
+            Handle<Quote>(ext::make_shared<SimpleQuote>(100.0)),
+            Handle<YieldTermStructure>(flatRate(today, 0.02, dc)),
+            Handle<YieldTermStructure>(rTS),
+            Handle<BlackVolTermStructure>(flatVol(today, 0.25, dc)));
+    };
+    const auto flatProcess = process(flatRate(today, 0.05, dc));
+    const Date maturity = today + 365;
+
+    // results of the default engine and of the constant-coefficient one
+    const auto results = [&](VanillaOption& option,
+                             const ext::shared_ptr<GeneralizedBlackScholesProcess>& p,
+                             const FdmSchemeDesc& scheme, bool dividends) {
+        std::vector<std::vector<Real>> values;
+        for (bool constantCoefficients : {false, true}) {
+            auto engine = MakeFdBlackScholesVanillaEngine(p)
+                .withTGrid(100).withXGrid(100).withFdmSchemeDesc(scheme)
+                .withConstantCoefficients(constantCoefficients);
+            if (dividends)
+                engine.withCashDividends({today + 150}, {2.0});
+            option.setPricingEngine(engine);
+            values.push_back({option.NPV(), option.delta(), option.gamma(), option.theta()});
+        }
+        return values;
+    };
+
+    // The default derives each step's rates and variance from discount factors
+    // and Black variances, which are off by about 1e-14.  Over 228 cases
+    // (volatility down to 1%, maturities up to 10 years) this moved prices and
+    // deltas by at most 3e-13, and gammas and thetas by 3e-10 of their size.
+    const Real tol = 1e-10;
+    const char* const greeks[] = {"NPV", "delta", "gamma", "theta"};
+
+    for (bool american : {false, true}) {
+        for (auto type : {Option::Put, Option::Call}) {
+            for (const auto& scheme : {FdmSchemeDesc::Douglas(), FdmSchemeDesc::CrankNicolson()}) {
+                for (bool dividends : {false, true}) {
+                    ext::shared_ptr<Exercise> exercise;
+                    if (american)
+                        exercise = ext::make_shared<AmericanExercise>(today, maturity);
+                    else
+                        exercise = ext::make_shared<EuropeanExercise>(maturity);
+                    VanillaOption option(ext::make_shared<PlainVanillaPayoff>(type, 105.0),
+                                         exercise);
+
+                    const auto values = results(option, flatProcess, scheme, dividends);
+                    // the option is actually priced with constant coefficients
+                    BOOST_CHECK(values[0] != values[1]);
+                    for (Size i=0; i < 4; ++i) {
+                        const Real diff = std::fabs(values[1][i] - values[0][i]);
+                        if (diff > tol*std::fabs(values[0][i])) {
+                            BOOST_ERROR("constant coefficients changed the " << greeks[i]
+                                << "\n    exercise:     " << (american ? "American" : "European")
+                                << "\n    type:         " << type
+                                << "\n    scheme:       "
+                                << (scheme.type == FdmSchemeDesc::DouglasType ? "Douglas"
+                                                                             : "Crank-Nicolson")
+                                << "\n    dividends:    " << dividends
+                                << "\n    default:      " << values[0][i]
+                                << "\n    constant:     " << values[1][i]
+                                << "\n    difference:   " << diff);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // time-dependent rates use the default and give the same results
+    const auto zeroProcess = process(ext::make_shared<ZeroCurve>(
+        std::vector<Date>{today, today + 180, maturity}, std::vector<Rate>{0.03, 0.05, 0.04}, dc));
+    VanillaOption option(ext::make_shared<PlainVanillaPayoff>(Option::Put, 105.0),
+                         ext::make_shared<AmericanExercise>(today, maturity));
+    const auto values = results(option, zeroProcess, FdmSchemeDesc::Douglas(), false);
+    BOOST_CHECK(values[0] == values[1]);
 }
 
 BOOST_AUTO_TEST_CASE(testCallPutParity) {

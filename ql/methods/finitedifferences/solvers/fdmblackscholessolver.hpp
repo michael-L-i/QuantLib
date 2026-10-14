@@ -45,7 +45,8 @@ namespace QuantLib {
                               const FdmSchemeDesc& schemeDesc = FdmSchemeDesc::Douglas(),
                               bool localVol = false,
                               Real illegalLocalVolOverwrite = -Null<Real>(),
-                              Handle<FdmQuantoHelper> quantoHelper = Handle<FdmQuantoHelper>());
+                              Handle<FdmQuantoHelper> quantoHelper = Handle<FdmQuantoHelper>(),
+                              bool constantCoefficients = false);
 
         Real valueAt(Real s) const;
         Real deltaAt(Real s) const;
@@ -63,6 +64,7 @@ namespace QuantLib {
         const bool localVol_;
         const Real illegalLocalVolOverwrite_;
         const Handle<FdmQuantoHelper> quantoHelper_;
+        const bool constantCoefficients_;
 
         mutable ext::shared_ptr<Fdm1DimSolver> solver_;
     };

@@ -33,10 +33,12 @@ namespace QuantLib {
                                                  const FdmSchemeDesc& schemeDesc,
                                                  bool localVol,
                                                  Real illegalLocalVolOverwrite,
-                                                 Handle<FdmQuantoHelper> quantoHelper)
+                                                 Handle<FdmQuantoHelper> quantoHelper,
+                                                 bool constantCoefficients)
     : process_(std::move(process)), strike_(strike), solverDesc_(std::move(solverDesc)),
       schemeDesc_(schemeDesc), localVol_(localVol),
-      illegalLocalVolOverwrite_(illegalLocalVolOverwrite), quantoHelper_(std::move(quantoHelper)) {
+      illegalLocalVolOverwrite_(illegalLocalVolOverwrite), quantoHelper_(std::move(quantoHelper)),
+      constantCoefficients_(constantCoefficients) {
 
         registerWith(process_);
         registerWith(quantoHelper_);
@@ -49,7 +51,8 @@ namespace QuantLib {
                 localVol_, illegalLocalVolOverwrite_, 0,
                 (quantoHelper_.empty())
                     ? ext::shared_ptr<FdmQuantoHelper>()
-                    : quantoHelper_.currentLink()));
+                    : quantoHelper_.currentLink(),
+                constantCoefficients_));
 
         solver_ = ext::make_shared<Fdm1DimSolver>(solverDesc_, schemeDesc_, op);
     }

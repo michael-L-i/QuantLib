@@ -67,6 +67,8 @@
 #include <ql/processes/hullwhiteprocess.hpp>
 #include <ql/processes/hybridhestonhullwhiteprocess.hpp>
 #include <ql/quotes/simplequote.hpp>
+#include <ql/termstructures/volatility/equityfx/blackvariancecurve.hpp>
+#include <ql/termstructures/yield/flatforward.hpp>
 #include <ql/termstructures/yield/zerocurve.hpp>
 #include <ql/time/daycounters/actual360.hpp>
 #include <ql/time/daycounters/actual365fixed.hpp>
@@ -861,6 +863,116 @@ BOOST_AUTO_TEST_CASE(testTripleBandScalarAxpyb) {
             }
         }
     }
+}
+
+BOOST_AUTO_TEST_CASE(testTripleBandFactorization) {
+
+    BOOST_TEST_MESSAGE("Testing factorized triple-band solves...");
+
+    const auto mesher = ext::make_shared<FdmMesherComposite>(
+        ext::make_shared<Concentrating1dMesher>(-1.0, 2.0, 30, std::make_pair(0.5, 0.1)),
+        ext::make_shared<Uniform1dMesher>(0.0, 1.0, 20));
+
+    Array r(mesher->layout()->size());
+    for (Size i=0; i < r.size(); ++i)
+        r[i] = std::sin(0.1*i) + 0.5;
+
+    for (Size direction=0; direction < 2; ++direction) {
+        TripleBandLinearOp op(direction, mesher);
+        op.axpyb(0.03, FirstDerivativeOp(direction, mesher),
+                 0.2, SecondDerivativeOp(direction, mesher), -0.05);
+
+        for (Real b : {1.0, 0.7}) {
+            const Real a = -0.005;
+            const Array expected = op.solve_splitting(r, a, b);
+            const Array calculated = op.solve_splitting(r, op.factorize(a, b));
+
+            for (Size i=0; i < r.size(); ++i) {
+                if (!close_enough(expected[i], calculated[i])) {
+                    BOOST_FAIL("factorized and direct solves differ"
+                        << "\n direction     : " << direction
+                        << "\n b             : " << b
+                        << "\n index         : " << i
+                        << "\n expected      : " << expected[i]
+                        << "\n calculated    : " << calculated[i]);
+                }
+            }
+        }
+    }
+}
+
+BOOST_AUTO_TEST_CASE(testFdmBlackScholesOpConstantCoefficients) {
+
+    BOOST_TEST_MESSAGE("Testing Black-Scholes operator with constant coefficients...");
+
+    const DayCounter dc = Actual365Fixed();
+    const Date today = Settings::instance().evaluationDate();
+    const Real strike = 100.0;
+    const auto mesher = ext::make_shared<FdmMesherComposite>(
+        ext::make_shared<Uniform1dMesher>(std::log(25.0), std::log(400.0), 50));
+
+    Array x(mesher->layout()->size());
+    for (Size i=0; i < x.size(); ++i)
+        x[i] = std::sin(0.3*i);
+
+    const auto process = [&](const ext::shared_ptr<YieldTermStructure>& rTS,
+                             const ext::shared_ptr<BlackVolTermStructure>& volTS) {
+        return ext::make_shared<BlackScholesMertonProcess>(
+            Handle<Quote>(ext::make_shared<SimpleQuote>(100.0)),
+            Handle<YieldTermStructure>(flatRate(today, 0.02, dc)),
+            Handle<YieldTermStructure>(rTS), Handle<BlackVolTermStructure>(volTS));
+    };
+    const auto flatProcess = process(flatRate(today, 0.05, dc), flatVol(today, 0.25, dc));
+
+    // L*x after setTime(t1, t2)
+    const auto applied = [&](const ext::shared_ptr<GeneralizedBlackScholesProcess>& p,
+                             bool constantCoefficients, Time t1, Time t2,
+                             bool localVol = false,
+                             const ext::shared_ptr<FdmQuantoHelper>& quanto = {}) {
+        FdmBlackScholesOp op(mesher, p, strike, localVol, -Null<Real>(), 0, quanto,
+                             constantCoefficients);
+        op.setTime(t1, t2);
+        return op.apply(x);
+    };
+    const Time t1 = 0.37, t2 = 0.3791;
+
+    // flat market data: the operator is fixed, and it differs from the default
+    // only by the default's per-step rates and variance, which carry rounding
+    // errors of about QL_EPSILON/(t2-t1)
+    const Array fixed = applied(flatProcess, true, t1, t2);
+    const Array expected = applied(flatProcess, false, t1, t2);
+    BOOST_CHECK(fixed != expected);
+    BOOST_CHECK(applied(flatProcess, true, 1.0, 1.25) == fixed);
+    for (Size i=0; i < x.size(); ++i) {
+        if (std::fabs(fixed[i] - expected[i]) > 1e-12*Norm2(expected)) {
+            BOOST_FAIL("constant and default operators differ"
+                << "\n index         : " << i
+                << "\n expected      : " << expected[i]
+                << "\n calculated    : " << fixed[i]);
+        }
+    }
+
+    // other market data, local volatility and quanto adjustments keep the default
+    const std::vector<Date> dates = {today + 180, today + 365, today + 730};
+    const std::vector<ext::shared_ptr<GeneralizedBlackScholesProcess>> others = {
+        process(ext::make_shared<FlatForward>(today, 0.05, dc, Simple), flatVol(today, 0.25, dc)),
+        process(ext::make_shared<ZeroCurve>(std::vector<Date>{today, dates[0], dates[2]},
+                                            std::vector<Rate>{0.03, 0.05, 0.04}, dc),
+                flatVol(today, 0.25, dc)),
+        process(flatRate(today, 0.05, dc),
+                ext::make_shared<BlackVarianceCurve>(today, dates,
+                                                     std::vector<Volatility>{0.3, 0.25, 0.2}, dc))
+    };
+    for (const auto& p : others)
+        BOOST_CHECK(applied(p, true, t1, t2) == applied(p, false, t1, t2));
+
+    BOOST_CHECK(applied(flatProcess, true, t1, t2, true)
+                == applied(flatProcess, false, t1, t2, true));
+
+    const auto quanto = ext::make_shared<FdmQuantoHelper>(
+        flatRate(today, 0.05, dc), flatRate(today, 0.03, dc), flatVol(today, 0.1, dc), 0.3, 1.0);
+    BOOST_CHECK(applied(flatProcess, true, t1, t2, false, quanto)
+                == applied(flatProcess, false, t1, t2, false, quanto));
 }
 
 BOOST_AUTO_TEST_CASE(testFdmHestonBarrier) {

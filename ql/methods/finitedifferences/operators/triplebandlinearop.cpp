@@ -323,4 +323,57 @@ namespace QuantLib {
             return solve([](Size i) { return i; });
         return solve([this](Size i) { return reverseIndex_[i]; });
     }
+
+    TripleBandLinearOp::Factorization TripleBandLinearOp::factorize(Real a, Real b) const {
+        const auto size = mesher_->layout()->size();
+        const auto index = [this](Size j) { return direction_ == 0 ? j : reverseIndex_[j]; };
+
+        // the elimination of solve_splitting, stored in solve order
+        Factorization f;
+        f.al_ = f.beta_ = f.temp_ = Array(size, 0.0);
+
+        auto previous = index(0);
+        Real beta = a*diag_[previous] + b;
+        QL_REQUIRE(beta != 0.0, "division by zero");
+        f.beta_[0] = 1.0 / beta;
+
+        for (auto j=1U; j<size; ++j) {
+            const auto current = index(j);
+            f.temp_[j] = a * upper_[previous] * f.beta_[j-1];
+
+            beta = b + a * (diag_[current] - f.temp_[j] * lower_[current]);
+            QL_ENSURE(beta != 0.0, "division by zero");
+            f.beta_[j] = 1.0 / beta;
+            f.al_[j] = a*lower_[current];
+            previous = current;
+        }
+        return f;
+    }
+
+    Array TripleBandLinearOp::solve_splitting(const Array& r, const Factorization& f) const {
+        QL_REQUIRE(r.size() == f.beta_.size(), "inconsistent size of rhs");
+
+        const auto size = r.size();
+        const auto solve = [&](const auto& index) {
+            Array result(size);
+
+            auto previous = index(0);
+            result[previous] = r[previous] * f.beta_[0];
+            for (auto j=1U; j<size; ++j) {
+                const auto current = index(j);
+                result[current] = (r[current] - f.al_[j]*result[previous]) * f.beta_[j];
+                previous = current;
+            }
+
+            for (auto j=size-2; j>0; --j)
+                result[index(j)] -= f.temp_[j+1] * result[index(j+1)];
+            result[index(0)] -= f.temp_[1] * result[index(1)];
+
+            return result;
+        };
+
+        if (direction_ == 0)
+            return solve([](Size i) { return i; });
+        return solve([this](Size i) { return reverseIndex_[i]; });
+    }
 }
