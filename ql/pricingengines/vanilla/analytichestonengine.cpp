@@ -35,6 +35,7 @@
 #include <functional>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <utility>
 
 #if defined(QL_PATCH_MSVC)
@@ -53,6 +54,11 @@ namespace QuantLib {
                 Time term, Real strike, Real ratio, Size j);
 
       Real operator()(Real phi) const;
+
+      // operator()(phi) is (*this)(phi, nodeTerms(phi)), where nodeTerms(phi)
+      // holds the strike-independent part of the exponent and the add-on term
+      NodeTerms nodeTerms(Real phi) const;
+      Real operator()(Real phi, const NodeTerms& terms) const;
 
     private:
         const Size j_;
@@ -97,7 +103,41 @@ namespace QuantLib {
     {
     }
 
-    Real AnalyticHestonEngine::Fj_Helper::operator()(Real phi) const
+    Real AnalyticHestonEngine::Fj_Helper::operator()(Real phi) const {
+        return (*this)(phi, nodeTerms(phi));
+    }
+
+    Real AnalyticHestonEngine::Fj_Helper::operator()(
+        Real phi, const NodeTerms& terms) const {
+        if (cpxLog_ == Gatheral && phi == 0.0) {
+            // use l'Hospital's rule to get lim_{phi->0}
+            if (j_ == 1) {
+                const Real kmr = rsigma_-kappa_;
+                if (std::fabs(kmr) > 1e-7) {
+                    return dd_-sx_
+                        + (std::exp(kmr*term_)*kappa_*theta_
+                           -kappa_*theta_*(kmr*term_+1.0) ) / (2*kmr*kmr)
+                        - v0_*(1.0-std::exp(kmr*term_)) / (2.0*kmr);
+                }
+                else
+                    // \kappa = \rho * \sigma
+                    return dd_-sx_ + 0.25*kappa_*theta_*term_*term_
+                                   + 0.5*v0_*term_;
+            }
+            else {
+                return dd_-sx_
+                    - (std::exp(-kappa_*term_)*kappa_*theta_
+                       +kappa_*theta_*(kappa_*term_-1.0))/(2*kappa_*kappa_)
+                    - v0_*(1.0-std::exp(-kappa_*term_))/(2*kappa_);
+            }
+        }
+
+        return std::exp(terms.first + std::complex<Real>(0.0, phi*(dd_-sx_))
+                        + terms.second).imag()/phi;
+    }
+
+    AnalyticHestonEngine::NodeTerms
+    AnalyticHestonEngine::Fj_Helper::nodeTerms(Real phi) const
     {
         const Real rpsig(rsigma_*phi);
 
@@ -110,54 +150,24 @@ namespace QuantLib {
             engine_ != nullptr ? engine_->addOnTerm(phi, term_, j_) : Real(0.0);
 
         if (cpxLog_ == Gatheral) {
-            if (phi != 0.0) {
-                if (sigma_ > 1e-5) {
-                    const std::complex<Real> p = (t1-d)/(t1+d);
-                    const std::complex<Real> g
-                                            = std::log((1.0 - p*ex)/(1.0 - p));
+            if (sigma_ > 1e-5) {
+                const std::complex<Real> p = (t1-d)/(t1+d);
+                const std::complex<Real> g
+                                        = std::log((1.0 - p*ex)/(1.0 - p));
 
-                    return
-                        std::exp(v0_*(t1-d)*(1.0-ex)/(sigma2_*(1.0-ex*p))
-                                 + (kappa_*theta_)/sigma2_*((t1-d)*term_-2.0*g)
-                                 + std::complex<Real>(0.0, phi*(dd_-sx_))
-                                 + addOnTerm
-                                 ).imag()/phi;
-                }
-                else {
-                    const std::complex<Real> td = phi/(2.0*t1)
-                                   *std::complex<Real>(-phi, (j_== 1)? 1 : -1);
-                    const std::complex<Real> p = td*sigma2_/(t1+d);
-                    const std::complex<Real> g = p*(1.0-ex);
-
-                    return
-                        std::exp(v0_*td*(1.0-ex)/(1.0-p*ex)
-                                 + (kappa_*theta_)*(td*term_-2.0*g/sigma2_)
-                                 + std::complex<Real>(0.0, phi*(dd_-sx_))
-                                 + addOnTerm
-                                 ).imag()/phi;
-                }
+                return {v0_*(t1-d)*(1.0-ex)/(sigma2_*(1.0-ex*p))
+                        + (kappa_*theta_)/sigma2_*((t1-d)*term_-2.0*g),
+                        addOnTerm};
             }
             else {
-                // use l'Hospital's rule to get lim_{phi->0}
-                if (j_ == 1) {
-                    const Real kmr = rsigma_-kappa_;
-                    if (std::fabs(kmr) > 1e-7) {
-                        return dd_-sx_
-                            + (std::exp(kmr*term_)*kappa_*theta_
-                               -kappa_*theta_*(kmr*term_+1.0) ) / (2*kmr*kmr)
-                            - v0_*(1.0-std::exp(kmr*term_)) / (2.0*kmr);
-                    }
-                    else
-                        // \kappa = \rho * \sigma
-                        return dd_-sx_ + 0.25*kappa_*theta_*term_*term_
-                                       + 0.5*v0_*term_;
-                }
-                else {
-                    return dd_-sx_
-                        - (std::exp(-kappa_*term_)*kappa_*theta_
-                           +kappa_*theta_*(kappa_*term_-1.0))/(2*kappa_*kappa_)
-                        - v0_*(1.0-std::exp(-kappa_*term_))/(2*kappa_);
-                }
+                const std::complex<Real> td = phi/(2.0*t1)
+                               *std::complex<Real>(-phi, (j_== 1)? 1 : -1);
+                const std::complex<Real> p = td*sigma2_/(t1+d);
+                const std::complex<Real> g = p*(1.0-ex);
+
+                return {v0_*td*(1.0-ex)/(1.0-p*ex)
+                        + (kappa_*theta_)*(td*term_-2.0*g/sigma2_),
+                        addOnTerm};
             }
         }
         else if (cpxLog_ == BranchCorrection) {
@@ -203,11 +213,9 @@ namespace QuantLib {
             g_km1_ = g.imag();
             g += std::complex<Real>(0, 2*b_*M_PI);
 
-            return std::exp(v0_*(t1+d)*(ex-1.0)/(sigma2_*(ex-p))
-                            + (kappa_*theta_)/sigma2_*((t1+d)*term_-2.0*g)
-                            + std::complex<Real>(0,phi*(dd_-sx_))
-                            + addOnTerm
-                            ).imag()/phi;
+            return {v0_*(t1+d)*(ex-1.0)/(sigma2_*(ex-p))
+                    + (kappa_*theta_)/sigma2_*((t1+d)*term_-2.0*g),
+                    addOnTerm};
         }
         else {
             QL_FAIL("unknown complex logarithm formula");
@@ -424,6 +432,25 @@ namespace QuantLib {
     }
 
     Real AnalyticHestonEngine::AP_Helper::operator()(Real u) const {
+        return (*this)(u, nodeTerms(u));
+    }
+
+    Real AnalyticHestonEngine::AP_Helper::operator()(
+        Real u, const NodeTerms& terms) const {
+        if (cpxLog_ == AngledContour || cpxLog_ == AngledContourNoCV || cpxLog_ == AsymptoticChF)
+            return std::exp(-u*tanPhi_*freq_)
+                    *(std::exp(std::complex<Real>(0.0, u*freq_))
+                      *std::complex<Real>(1, tanPhi_)
+                      *terms.first/terms.second
+                      ).real()*s_alpha_;
+        else
+            return (std::exp(std::complex<Real> (0.0, u*freq_))
+                * terms.first / terms.second
+                ).real()*s_alpha_;
+    }
+
+    AnalyticHestonEngine::NodeTerms
+    AnalyticHestonEngine::AP_Helper::nodeTerms(Real u) const {
         QL_REQUIRE(   enginePtr_->addOnTerm(u, term_, 1)
                         == std::complex<Real>(0.0)
                    && enginePtr_->addOnTerm(u, term_, 2)
@@ -444,11 +471,7 @@ namespace QuantLib {
             else if (cpxLog_ == AsymptoticChF)
                 phiBS = std::exp(u*std::complex<Real>(1, tanPhi_)*phi_ + psi_);
 
-            return std::exp(-u*tanPhi_*freq_)
-                    *(std::exp(std::complex<Real>(0.0, u*freq_))
-                      *std::complex<Real>(1, tanPhi_)
-                      *(phiBS - enginePtr_->chF(hPrime, term_))/(h_u*hPrime)
-                      ).real()*s_alpha_;
+            return {phiBS - enginePtr_->chF(hPrime, term_), h_u*hPrime};
         }
         else if (cpxLog_ == AndersenPiterbarg || cpxLog_ == AndersenPiterbargOptCV) {
             const std::complex<Real> z(u, -alpha_);
@@ -458,9 +481,7 @@ namespace QuantLib {
                         std::complex<Real>(-zPrime.imag(), zPrime.real()))
             );
 
-            return (std::exp(std::complex<Real> (0.0, u*freq_))
-                * (phiBS - enginePtr_->chF(zPrime, term_)) / (z*zPrime)
-                ).real()*s_alpha_;
+            return {phiBS - enginePtr_->chF(zPrime, term_), z*zPrime};
         }
         else
             QL_FAIL("unknown control variate");
@@ -641,6 +662,83 @@ namespace QuantLib {
         return evaluations_;
     }
 
+    struct AnalyticHestonEngine::NodeCache {
+        // keyed by integrand: j for Fj_Helper, tanPhi_ for AP_Helper
+        std::map<Real, std::vector<std::pair<Real, NodeTerms>>> nodes;
+        Size evaluations = 0;
+    };
+
+    // The characteristic function depends on the maturity, not on the strike.
+    // Integrations with fixed nodes evaluate an integrand at the same nodes, in
+    // the same order, on every call; so the strike-independent terms of each
+    // integrand are recorded on its first call and replayed for further strikes.
+    // The quadrature and the integrand arithmetic are then exactly those of a
+    // separate pricing, and so are the results.
+    template <class F>
+    Real AnalyticHestonEngine::integrate(Real c_inf, const F& f, NodeCache* cache, Real key,
+                                         const std::function<Real()>& maxBound,
+                                         Real scaling) const {
+        if (cache == nullptr)
+            return integration_->calculate(c_inf, f, maxBound, scaling);
+
+        auto& nodes = cache->nodes[key];
+        if (nodes.empty()) {
+            integration_->calculate(c_inf, [&](Real u) {
+                nodes.emplace_back(u, f.nodeTerms(u));
+                return Real(0.0);
+            }, maxBound, scaling);
+            cache->evaluations += nodes.size();
+        }
+
+        auto node = nodes.cbegin();
+        return integration_->calculate(c_inf, [&](Real u) {
+            QL_REQUIRE(node != nodes.cend() && node->first == u,
+                       "integration nodes depend on the strike");
+            return f(u, (node++)->second);
+        }, maxBound, scaling);
+    }
+
+    std::vector<Real> AnalyticHestonEngine::priceVanillaPayoffs(
+        const std::vector<ext::shared_ptr<PlainVanillaPayoff>>& payoffs,
+        const Date& maturity) const {
+
+        const ext::shared_ptr<HestonProcess>& process = model_->process();
+        const Real fwd = process->s0()->value()
+             * process->dividendYield()->discount(maturity)
+             / process->riskFreeRate()->discount(maturity);
+
+        return priceVanillaPayoffs(payoffs, process->time(maturity), fwd);
+    }
+
+    std::vector<Real> AnalyticHestonEngine::priceVanillaPayoffs(
+        const std::vector<ext::shared_ptr<PlainVanillaPayoff>>& payoffs,
+        Time maturity) const {
+
+        const ext::shared_ptr<HestonProcess>& process = model_->process();
+        const Real fwd = process->s0()->value()
+             * process->dividendYield()->discount(maturity)
+             / process->riskFreeRate()->discount(maturity);
+
+        return priceVanillaPayoffs(payoffs, maturity, fwd);
+    }
+
+    std::vector<Real> AnalyticHestonEngine::priceVanillaPayoffs(
+        const std::vector<ext::shared_ptr<PlainVanillaPayoff>>& payoffs,
+        Time maturity, Real fwd) const {
+
+        QL_REQUIRE(!integration_->isAdaptiveIntegration(),
+                   "adaptive integration cannot share nodes across strikes");
+
+        NodeCache cache;
+        std::vector<Real> prices;
+        prices.reserve(payoffs.size());
+        for (const auto& payoff : payoffs)
+            prices.push_back(priceVanillaPayoff(payoff, maturity, fwd, &cache));
+
+        evaluations_ = cache.evaluations;
+        return prices;
+    }
+
     Real AnalyticHestonEngine::priceVanillaPayoff(
         const ext::shared_ptr<PlainVanillaPayoff>& payoff,
         const Date& maturity) const {
@@ -666,7 +764,7 @@ namespace QuantLib {
 
     Real AnalyticHestonEngine::priceVanillaPayoff(
         const ext::shared_ptr<PlainVanillaPayoff>& payoff,
-        Time maturity, Real fwd) const {
+        Time maturity, Real fwd, NodeCache* cache) const {
 
         Real value;
 
@@ -694,14 +792,14 @@ namespace QuantLib {
             const Real c_inf = std::min(0.2, std::max(0.0001,
                 std::sqrt(1.0-rho*rho)/sigma))*(v0 + kappa*theta*maturity);
 
-            const Real p1 = integration_->calculate(c_inf,
+            const Real p1 = integrate(c_inf,
                 Fj_Helper(kappa, theta, sigma, v0, spot, rho, this,
-                          cpxLog_, maturity, strike, df, 1))/M_PI;
+                          cpxLog_, maturity, strike, df, 1), cache, 1)/M_PI;
             evaluations_ += integration_->numberOfEvaluations();
 
-            const Real p2 = integration_->calculate(c_inf,
+            const Real p2 = integrate(c_inf,
                 Fj_Helper(kappa, theta, sigma, v0, spot, rho, this,
-                          cpxLog_, maturity, strike, df, 2))/M_PI;
+                          cpxLog_, maturity, strike, df, 2), cache, 2)/M_PI;
             evaluations_ += integration_->numberOfEvaluations();
 
             switch (payoff->optionType())
@@ -752,8 +850,8 @@ namespace QuantLib {
                 ? std::max(0.25, std::min(1000.0, 0.25/std::sqrt(0.5*vAvg*maturity)))
                 : Real(1.0);
 
-            const Real h_cv =
-                fwd/M_PI*integration_->calculate(c_inf, cvHelper, uM, scalingFactor);
+            const Real h_cv = fwd/M_PI*integrate(
+                c_inf, cvHelper, cache, cvHelper.tanPhi_, uM, scalingFactor);
 
             evaluations_ += integration_->numberOfEvaluations();
 

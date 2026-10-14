@@ -3426,6 +3426,97 @@ BOOST_AUTO_TEST_CASE(testHestonBlackVolSurfaceAtmLevel) {
                        << "\n   tolerance:  " << tol);
     }
 }
+
+BOOST_AUTO_TEST_CASE(testSharedStrikePricing) {
+    BOOST_TEST_MESSAGE("Testing Heston pricing of several strikes with shared "
+                       "characteristic-function evaluations...");
+
+    const Date today(15, March, 2024);
+    Settings::instance().evaluationDate() = today;
+
+    const DayCounter dc = Actual365Fixed();
+    const auto model = ext::make_shared<HestonModel>(ext::make_shared<HestonProcess>(
+        Handle<YieldTermStructure>(flatRate(0.03, dc)),
+        Handle<YieldTermStructure>(flatRate(0.01, dc)),
+        Handle<Quote>(ext::make_shared<SimpleQuote>(100.0)), 0.09, 0.6, 0.06, 0.8, -0.6));
+
+    std::vector<ext::shared_ptr<PlainVanillaPayoff>> payoffs;
+    for (Real strike : {50.0, 80.0, 90.0, 95.0, 100.0, 105.0, 110.0, 125.0, 150.0, 200.0})
+        for (Option::Type type : {Option::Call, Option::Put})
+            payoffs.push_back(ext::make_shared<PlainVanillaPayoff>(type, strike));
+
+    const Size order = 128;
+    for (AnalyticHestonEngine::ComplexLogFormula formula :
+         {AnalyticHestonEngine::Gatheral, AnalyticHestonEngine::BranchCorrection,
+          AnalyticHestonEngine::AndersenPiterbarg, AnalyticHestonEngine::AndersenPiterbargOptCV,
+          AnalyticHestonEngine::AsymptoticChF, AnalyticHestonEngine::AngledContour,
+          AnalyticHestonEngine::AngledContourNoCV, AnalyticHestonEngine::OptimalCV}) {
+        const auto engine = ext::make_shared<AnalyticHestonEngine>(
+            model, formula, AnalyticHestonEngine::Integration::gaussLaguerre(order));
+
+        for (const Period& tenor :
+             {Period(1, Weeks), Period(3, Months), Period(1, Years), Period(5, Years)}) {
+            const Date maturity = today + tenor;
+            const Time t = dc.yearFraction(today, maturity);
+
+            const std::vector<Real> calculated = engine->priceVanillaPayoffs(payoffs, maturity);
+
+            // the payoffs share at most three integration contours, or the two
+            // integrals of Heston's formula, instead of one integration each
+            if (engine->numberOfEvaluations() > 3*order)
+                BOOST_ERROR("failed to share characteristic-function evaluations"
+                            << "\n  formula    : " << formula
+                            << "\n  maturity   : " << maturity
+                            << "\n  evaluations: " << engine->numberOfEvaluations());
+
+            const std::vector<Real> calculatedForTime = engine->priceVanillaPayoffs(payoffs, t);
+
+            for (Size i = 0; i < payoffs.size(); ++i) {
+                VanillaOption option(payoffs[i], ext::make_shared<EuropeanExercise>(maturity));
+                option.setPricingEngine(engine);
+
+                // both evaluate the same expressions at the same nodes
+                const Real expected = option.NPV();
+                const Real expectedForTime = engine->priceVanillaPayoff(payoffs[i], t);
+                if (calculated[i] != expected || calculatedForTime[i] != expectedForTime)
+                    BOOST_ERROR("failed to reproduce the price of a single option"
+                                << "\n  formula   : " << formula
+                                << "\n  maturity  : " << maturity
+                                << "\n  payoff    : " << payoffs[i]->description()
+                                << std::setprecision(17)
+                                << "\n  calculated: " << calculated[i]
+                                << "\n  expected  : " << expected
+                                << "\n  calculated for time: " << calculatedForTime[i]
+                                << "\n  expected for time  : " << expectedForTime);
+            }
+        }
+    }
+}
+
+BOOST_AUTO_TEST_CASE(testSharedStrikePricingRequirements) {
+    BOOST_TEST_MESSAGE("Testing that shared-strike Heston pricing rejects "
+                       "strike-dependent integration nodes...");
+
+    const DayCounter dc = Actual365Fixed();
+    const auto model = ext::make_shared<HestonModel>(ext::make_shared<HestonProcess>(
+        Handle<YieldTermStructure>(flatRate(0.03, dc)),
+        Handle<YieldTermStructure>(flatRate(0.01, dc)),
+        Handle<Quote>(ext::make_shared<SimpleQuote>(100.0)), 0.04, 2.0, 0.04, 0.3, -0.7));
+
+    const std::vector<ext::shared_ptr<PlainVanillaPayoff>> payoffs = {
+        ext::make_shared<PlainVanillaPayoff>(Option::Call, 90.0),
+        ext::make_shared<PlainVanillaPayoff>(Option::Call, 110.0)};
+
+    // adaptive integrations choose their nodes from the integrand
+    const AnalyticHestonEngine adaptive(model, 1e-8, 1000);
+    BOOST_CHECK_THROW(adaptive.priceVanillaPayoffs(payoffs, 1.0), Error);
+
+    // the Andersen-Piterbarg truncation of a discrete rule depends on the strike
+    const AnalyticHestonEngine discrete(model, AnalyticHestonEngine::AndersenPiterbarg,
+                                        AnalyticHestonEngine::Integration::discreteSimpson(64));
+    BOOST_CHECK_THROW(discrete.priceVanillaPayoffs(payoffs, 1.0), Error);
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 
 BOOST_AUTO_TEST_SUITE(HestonModelExperimentalTest)
