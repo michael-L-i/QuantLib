@@ -56,7 +56,7 @@ namespace QuantLib {
       private:
         class ISMA_Impl final : public DayCounter::Impl {
           public:
-            explicit ISMA_Impl(Schedule schedule) : schedule_(std::move(schedule)) {}
+            explicit ISMA_Impl(Schedule schedule);
 
             std::string name() const override { return std::string("Actual/Actual (ISMA)"); }
             Time yearFraction(const Date& d1,
@@ -66,6 +66,9 @@ namespace QuantLib {
 
           private:
             Schedule schedule_;
+            // quasi-coupon dates, sorted; empty if they couldn't be
+            // computed upfront (errors are then raised at each use)
+            std::vector<Date> couponDates_;
         };
         class Old_ISMA_Impl final : public DayCounter::Impl {
           public:
