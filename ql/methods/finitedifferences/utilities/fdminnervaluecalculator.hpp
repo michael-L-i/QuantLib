@@ -67,7 +67,7 @@ namespace QuantLib {
         const Size direction_;
         const std::function<Real(Real)> gridMapping_;
 
-        std::vector<Real> avgInnerValues_;
+        std::vector<Real> innerValues_, avgInnerValues_;
     };
 
     class FdmLogInnerValue : public FdmCellAveragingInnerValue {

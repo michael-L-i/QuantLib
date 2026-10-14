@@ -29,6 +29,7 @@
 #include <ql/methods/finitedifferences/operators/fdmlinearoplayout.hpp>
 #include <ql/methods/finitedifferences/utilities/fdminnervaluecalculator.hpp>
 #include <ql/payoff.hpp>
+#include <ql/utilities/null.hpp>
 #include <deque>
 #include <utility>
 
@@ -53,11 +54,15 @@ namespace QuantLib {
                                                            Size direction,
                                                            std::function<Real(Real)> gridMapping)
     : payoff_(std::move(payoff)), mesher_(std::move(mesher)), direction_(direction),
-      gridMapping_(std::move(gridMapping)) {}
+      gridMapping_(std::move(gridMapping)),
+      innerValues_(mesher_->layout()->size(), Null<Real>()) {}
 
     Real FdmCellAveragingInnerValue::innerValue(const FdmLinearOpIterator& iter, Time) {
-        const Real loc = mesher_->location(iter, direction_);
-        return (*payoff_)(gridMapping_(loc));
+        // independent of time, but early-exercise conditions ask for it at every step
+        Real& value = innerValues_[iter.index()];
+        if (value == Null<Real>())
+            value = (*payoff_)(gridMapping_(mesher_->location(iter, direction_)));
+        return value;
     }
 
     Real FdmCellAveragingInnerValue::avgInnerValue(const FdmLinearOpIterator& iter, Time t) {
