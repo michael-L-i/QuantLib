@@ -159,21 +159,30 @@ namespace QuantLib {
     }
 
 
+    namespace detail {
+        [[noreturn]] inline void throwEmptyHandleError() {
+            QL_FAIL("empty Handle cannot be dereferenced");
+        }
+    }
+
     template <class T>
     inline const ext::shared_ptr<T>& Handle<T>::currentLink() const {
-        QL_REQUIRE(!empty(), "empty Handle cannot be dereferenced");
+        if (empty())
+            detail::throwEmptyHandleError();
         return link_->currentLink();
     }
 
     template <class T>
     inline const ext::shared_ptr<T>& Handle<T>::operator->() const {
-        QL_REQUIRE(!empty(), "empty Handle cannot be dereferenced");
+        if (empty())
+            detail::throwEmptyHandleError();
         return link_->currentLink();
     }
 
     template <class T>
     inline const ext::shared_ptr<T>& Handle<T>::operator*() const {
-        QL_REQUIRE(!empty(), "empty Handle cannot be dereferenced");
+        if (empty())
+            detail::throwEmptyHandleError();
         return link_->currentLink();
     }
 
