@@ -250,6 +250,7 @@ namespace QuantLib {
         static Date::serial_type minimumSerialNumber();
         static Date::serial_type maximumSerialNumber();
         static void checkSerialNumber(Date::serial_type serialNumber);
+        [[noreturn]] static void failSerialNumber(Date::serial_type serialNumber);
 
 #ifdef QL_HIGH_RESOLUTION_DATE
         boost::posix_time::ptime dateTime_;
@@ -259,6 +260,7 @@ namespace QuantLib {
         static Integer monthLength(Month m, bool leapYear);
         static Integer monthOffset(Month m, bool leapYear);
         static Date::serial_type yearOffset(Year y);
+        static bool isLeapInRange(Year y);
 #endif
     };
 
@@ -387,6 +389,19 @@ namespace QuantLib {
        return (d.dayOfMonth() == 1);
     }
 
+    inline Date::serial_type Date::minimumSerialNumber() {
+        return 367;       // Jan 1st, 1901
+    }
+
+    inline Date::serial_type Date::maximumSerialNumber() {
+        return 109574;    // Dec 31st, 2199
+    }
+
+    inline void Date::checkSerialNumber(Date::serial_type serialNumber) {
+        if (serialNumber < minimumSerialNumber() || serialNumber > maximumSerialNumber())
+            failSerialNumber(serialNumber);
+    }
+
 #ifndef QL_HIGH_RESOLUTION_DATE
     inline Weekday Date::weekday() const {
         Integer w = serialNumber_ % 7;
@@ -394,7 +409,62 @@ namespace QuantLib {
     }
 
     inline Day Date::dayOfMonth() const {
-        return dayOfYear() - monthOffset(month(),isLeap(year()));
+        return dayOfYear() - monthOffset(month(),isLeapInRange(year()));
+    }
+
+    inline Year Date::year() const {
+        Year y = (serialNumber_ / 365)+1900;
+        // yearOffset(y) is December 31st of the preceding year
+        if (serialNumber_ <= yearOffset(y))
+            --y;
+        return y;
+    }
+
+    inline Month Date::month() const {
+        Day d = dayOfYear(); // dayOfYear is 1 based
+        Integer m = d/30 + 1;
+        bool leap = isLeapInRange(year());
+        while (d <= monthOffset(Month(m),leap))
+            --m;
+        while (d > monthOffset(Month(m+1),leap)) // NOLINT(misc-misplaced-widening-cast)
+            ++m;
+        return Month(m);
+    }
+
+    inline bool Date::isLeapInRange(Year y) {
+        // valid for the years of valid dates, i.e., [1901,2199]
+        return (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+    }
+
+    inline Integer Date::monthLength(Month m, bool leapYear) {
+        static constexpr Integer MonthLength[] = {
+            31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31
+        };
+        static constexpr Integer MonthLeapLength[] = {
+            31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31
+        };
+        return (leapYear? MonthLeapLength[m-1] : MonthLength[m-1]);
+    }
+
+    inline Integer Date::monthOffset(Month m, bool leapYear) {
+        static constexpr Integer MonthOffset[] = {
+              0,  31,  59,  90, 120, 151,   // Jan - Jun
+            181, 212, 243, 273, 304, 334,   // Jun - Dec
+            365     // used in dayOfMonth to bracket day
+        };
+        static constexpr Integer MonthLeapOffset[] = {
+              0,  31,  60,  91, 121, 152,   // Jan - Jun
+            182, 213, 244, 274, 305, 335,   // Jun - Dec
+            366     // used in dayOfMonth to bracket day
+        };
+        return (leapYear? MonthLeapOffset[m-1] : MonthOffset[m-1]);
+    }
+
+    inline Date::serial_type Date::yearOffset(Year y) {
+        // December 31st of the preceding year, e.g. 366 for 1901;
+        // 1900 counts as leap (Excel's bug) and 2100 is not leap
+        Date::serial_type n = y - 1900;
+        return 365*n + (n+3)/4 - (y > 2100 ? 1 : 0);
     }
 
     inline Day Date::dayOfYear() const {
@@ -403,6 +473,39 @@ namespace QuantLib {
 
     inline Date::serial_type Date::serialNumber() const {
         return serialNumber_;
+    }
+
+    inline Date::Date(Date::serial_type serialNumber)
+    : serialNumber_(serialNumber) {
+        checkSerialNumber(serialNumber);
+    }
+
+    inline Date& Date::operator+=(Date::serial_type days) {
+        Date::serial_type serial = serialNumber_ + days;
+        checkSerialNumber(serial);
+        serialNumber_ = serial;
+        return *this;
+    }
+
+    inline Date& Date::operator-=(Date::serial_type days) {
+        Date::serial_type serial = serialNumber_ - days;
+        checkSerialNumber(serial);
+        serialNumber_ = serial;
+        return *this;
+    }
+
+    inline Date& Date::operator++() {
+        Date::serial_type serial = serialNumber_ + 1;
+        checkSerialNumber(serial);
+        serialNumber_ = serial;
+        return *this;
+    }
+
+    inline Date& Date::operator--() {
+        Date::serial_type serial = serialNumber_ - 1;
+        checkSerialNumber(serial);
+        serialNumber_ = serial;
+        return *this;
     }
 
     inline Date Date::operator+(Date::serial_type days) const {
