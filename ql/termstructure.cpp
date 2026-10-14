@@ -61,8 +61,8 @@ namespace QuantLib {
                             << maxDate() << ")");
     }
 
-    void TermStructure::checkRange(Time t,
-                                   bool extrapolate) const {
+    void TermStructure::checkRangeSlow(Time t,
+                                       bool extrapolate) const {
         QL_REQUIRE(t >= 0.0,
                    "negative time (" << t << ") given");
         QL_REQUIRE(extrapolate || allowsExtrapolation()
