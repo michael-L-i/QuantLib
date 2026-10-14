@@ -34,6 +34,8 @@
 #include <ql/instruments/vanillaoption.hpp>
 #include <functional>
 #include <complex>
+#include <utility>
+#include <vector>
 
 namespace QuantLib {
 
@@ -172,6 +174,27 @@ namespace QuantLib {
         Real priceVanillaPayoff(
            const ext::shared_ptr<PlainVanillaPayoff>& payoff, Time maturity) const;
 
+        //! prices several plain-vanilla payoffs with a common maturity
+        /*! The characteristic function depends on the maturity but not on
+            the strike, so its values at the integration nodes are computed
+            once and shared by all payoffs (on at most three integration
+            contours for the control-variate formulas).  Each price is the
+            same as the one returned by priceVanillaPayoff(), but each
+            further strike costs a fraction of a separate pricing;
+            numberOfEvaluations() returns the number of shared evaluations.
+
+            \pre the integration nodes must not depend on the strike.  This
+                 holds for Gaussian quadratures, such as the default
+                 Gauss-Laguerre rule, but not for adaptive integrations.
+        */
+        std::vector<Real> priceVanillaPayoffs(
+            const std::vector<ext::shared_ptr<PlainVanillaPayoff>>& payoffs,
+            const Date& maturity) const;
+
+        std::vector<Real> priceVanillaPayoffs(
+            const std::vector<ext::shared_ptr<PlainVanillaPayoff>>& payoffs,
+            Time maturity) const;
+
         static ComplexLogFormula optimalControlVariate(
              Time t, Real v0, Real kappa, Real theta, Real sigma, Real rho);
 
@@ -184,11 +207,23 @@ namespace QuantLib {
 
       private:
         class Fj_Helper;
+        struct NodeCache;
+
+        // strike-independent factors of an integrand at a node, see integrate()
+        typedef std::pair<std::complex<Real>, std::complex<Real>> NodeTerms;
 
         Real priceVanillaPayoff(
            const ext::shared_ptr<PlainVanillaPayoff>& payoff,
-           Time maturity, Real fwd) const;
+           Time maturity, Real fwd, NodeCache* cache = nullptr) const;
 
+        std::vector<Real> priceVanillaPayoffs(
+            const std::vector<ext::shared_ptr<PlainVanillaPayoff>>& payoffs,
+            Time maturity, Real fwd) const;
+
+        template <class F>
+        Real integrate(Real c_inf, const F& f, NodeCache* cache, Real key,
+                       const std::function<Real()>& maxBound = {},
+                       Real scaling = 1.0) const;
 
         mutable Size evaluations_;
         const ComplexLogFormula cpxLog_;
@@ -208,12 +243,19 @@ namespace QuantLib {
         Real controlVariateValue() const;
 
       private:
+        friend class AnalyticHestonEngine;
+
+        // operator()(u) is (*this)(u, nodeTerms(u)), where nodeTerms(u) holds
+        // the characteristic function and depends on the strike only via tanPhi_
+        NodeTerms nodeTerms(Real u) const;
+        Real operator()(Real u, const NodeTerms& terms) const;
+
         const Time term_;
         const Real fwd_, strike_, freq_;
         const ComplexLogFormula cpxLog_;
         const AnalyticHestonEngine* const enginePtr_;
         const Real alpha_, s_alpha_;
-        Real vAvg_, tanPhi_;
+        Real vAvg_, tanPhi_ = 0.0;
         std::complex<Real> phi_, psi_;
     };
 
