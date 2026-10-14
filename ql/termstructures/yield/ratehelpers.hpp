@@ -109,6 +109,10 @@ namespace QuantLib {
         Real impliedQuote() const override;
         void setTermStructure(YieldTermStructure*) override;
         //@}
+        //! \name DepositRateHelper inspectors
+        //@{
+        const ext::shared_ptr<IborIndex>& iborIndex() const;
+        //@}
         //! \name Visitability
         //@{
         void accept(AcyclicVisitor&) override;
@@ -259,6 +263,7 @@ namespace QuantLib {
         // NOLINTNEXTLINE(cppcoreguidelines-noexcept-swap,performance-noexcept-swap)
         ext::shared_ptr<VanillaSwap> swap() const;
         const Period& forwardStart() const;
+        const Handle<YieldTermStructure>& discountingCurve() const;
         //@}
         //! \name Visitability
         //@{
@@ -429,6 +434,10 @@ namespace QuantLib {
 
     // inline
 
+    inline const ext::shared_ptr<IborIndex>& DepositRateHelper::iborIndex() const {
+        return iborIndex_;
+    }
+
     inline Spread SwapRateHelper::spread() const {
         return spread_.empty() ? 0.0 : spread_->value();
     }
@@ -440,6 +449,10 @@ namespace QuantLib {
 
     inline const Period& SwapRateHelper::forwardStart() const {
         return fwdStart_;
+    }
+
+    inline const Handle<YieldTermStructure>& SwapRateHelper::discountingCurve() const {
+        return discountHandle_;
     }
 
 }
