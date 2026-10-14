@@ -58,6 +58,16 @@ namespace QuantLib {
                                       const Array& x0,
                                       Time dt) const = 0;
         };
+        //! evolution of a stochastic process over a given time step
+        /*! See StochasticProcess::step(). */
+        class Step {
+          public:
+            virtual ~Step() = default;
+            //! returns evolve(t0, x0, dt, dw) for the \f$ t_0 \f$ and \f$ \Delta t \f$ of the step
+            virtual Array evolve(const Array& x0, const Array& dw) const = 0;
+            //! the same for 1-D processes
+            virtual Real evolve(Real x0, Real dw) const;
+        };
         ~StochasticProcess() override = default;
         //! \name Stochastic process interface
         //@{
@@ -124,6 +134,18 @@ namespace QuantLib {
                              const Array& x0,
                              Time dt,
                              const Array& dw) const;
+        /*! returns the evolution of the process from \f$ t_0 \f$ to
+            \f$ t_0 + \Delta t \f$.  Path generators call this once per
+            time step and reuse the result for every path, so derived
+            classes can override it to compute in advance whatever
+            evolve() doesn't need the state for.  By default, the
+            returned step calls evolve().
+
+            \warning Precomputed quantities don't follow later changes
+                     to the inputs of the process.  The step might also
+                     refer to the process, which must outlive it.
+        */
+        virtual ext::shared_ptr<Step> step(Time t0, Time dt) const;
         /*! applies a change to the asset value. By default, it
             returns \f$ \mathrm{x} + \Delta \mathrm{x} \f$.
         */
@@ -173,6 +195,14 @@ namespace QuantLib {
             virtual Real variance(const StochasticProcess1D&,
                                   Time t0, Real x0, Time dt) const = 0;
         };
+        //! evolution of a 1-D stochastic process over a given time step
+        class Step : public StochasticProcess::Step {
+          public:
+            Real evolve(Real x0, Real dw) const override = 0;
+
+          private:
+            Array evolve(const Array& x0, const Array& dw) const override;
+        };
         //! \name 1-D stochastic process interface
         //@{
         //! returns the initial value of the state variable
@@ -217,6 +247,8 @@ namespace QuantLib {
             standard deviation.
         */
         virtual Real evolve(Time t0, Real x0, Time dt, Real dw) const;
+        //! returns a StochasticProcess1D::Step; by default, it calls evolve()
+        ext::shared_ptr<StochasticProcess::Step> step(Time t0, Time dt) const override;
         /*! applies a change to the asset value. By default, it
             returns \f$ x + \Delta x \f$.
         */
